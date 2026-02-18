@@ -32,7 +32,7 @@
 #
 # Intial Fork
 #
-# 2-18-2026 - ks - Switched Parametr 9 to overlay icon definition, Commented out power functions
+# 2-18-2026 - ks - Switched Parameter 9 to overlay icon definition, Commented out power functions
 #
 #
 ####################################################################################################
