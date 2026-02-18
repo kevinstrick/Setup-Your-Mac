@@ -29,7 +29,13 @@
 #   - Fixed minor issue with `calculateFreeDiskSpace` function result not being parsed into scriptLog
 #
 ####################################################################################################
-
+#
+# Intial Fork
+#
+# 2-18-2026 - ks - Switched Parametr 9 to overlay icon definition, Commented out power functions
+#
+#
+####################################################################################################
 
 
 ####################################################################################################
@@ -44,15 +50,17 @@
 
 scriptVersion="1.15.1"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-scriptLog="${4:-"/var/log/org.churchofjesuschrist.log"}"                        # Parameter 4: Script Log Location [ /var/log/org.churchofjesuschrist.log ] (i.e., Your organization's default location for client-side logs)
+scriptLog="${4:-"/var/log/com.fox.SYM.log"}"                        # Parameter 4: Script Log Location [ /var/log/org.churchofjesuschrist.log ] (i.e., Your organization's default location for client-side logs)
 debugMode="${5:-"verbose"}"                                                     # Parameter 5: Debug Mode [ verbose (default) | true | false ]
 welcomeDialog="${6:-"userInput"}"                                               # Parameter 6: Welcome dialog [ userInput (default) | video | messageOnly | false ]
 completionActionOption="${7:-"Restart Attended"}"                               # Parameter 7: Completion Action [ wait | sleep (with seconds) | Shut Down | Shut Down Attended | Shut Down Confirm | Restart | Restart Attended (default) | Restart Confirm | Log Out | Log Out Attended | Log Out Confirm ]
 requiredMinimumBuild="${8:-"disabled"}"                                         # Parameter 8: Required Minimum Build [ disabled (default) | 23F ] (i.e., Your organization's required minimum build of macOS to allow users to proceed; use "23F" for macOS 14.5)
-outdatedOsAction="${9:-"/System/Library/CoreServices/Software Update.app"}"     # Parameter 9: Outdated OS Action [ /System/Library/CoreServices/Software Update.app (default) | jamfselfservice://content?entity=policy&id=117&action=view ] (i.e., Jamf Pro Self Service policy ID for operating system ugprades)
+#outdatedOsAction="${9:-"/System/Library/CoreServices/Software Update.app"}"     # Parameter 9: Outdated OS Action [ /System/Library/CoreServices/Software Update.app (default) | jamfselfservice://content?entity=policy&id=117&action=view ] (i.e., Jamf Pro Self Service policy ID for operating system ugprades)
+overlayicon="${9:-"/var/tmp/overlayicon.icns"}"     # Parameter 9: Overlay icon
 webhookURL="${10:-""}"                                                          # Parameter 10: Microsoft Teams or Slack Webhook URL [ Leave blank to disable (default) | https://microsoftTeams.webhook.com/URL | https://hooks.slack.com/services/URL ] Can be used to send a success or failure message to Microsoft Teams or Slack via Webhook. (Function will automatically detect if Webhook URL is for Slack or Teams; can be modified to include other communication tools that support functionality.)
 presetConfiguration="${11:-""}"                                                 # Parameter 11: Specify a Configuration (i.e., `policyJSON`; NOTE: If set, `promptForConfiguration` will be automatically suppressed and the preselected configuration will be used instead)
 swiftDialogMinimumRequiredVersion="2.5.0.4768"                                  # This will be set and updated as dependancies on newer features change.
+
 
 
 
@@ -127,9 +135,9 @@ supportTeamEmail="support@domain.com"
 supportTeamChat="chat.support.domain.com"
 supportTeamChatHyperlink="[${supportTeamChat}](https://${supportTeamChat})"
 supportTeamWebsite="support.domain.com"
-supportTeamHyperlink="[${supportTeamWebsite}](https://${supportTeamWebsite})"
-supportKB="KB8675309"
-supportTeamErrorKB="[${supportKB}](https://servicenow.company.com/support?id=kb_article_view&sysparm_article=${supportKB}#Failures)"
+supportTeamHyperlink=""
+supportKB=""
+supportTeamErrorKB=""
 supportTeamHours="Monday through Friday, 8 a.m. to 5 p.m."
 
 # Disable the "Continue" button in the User Input "Welcome" dialog until Dynamic Download Estimates have complete [ true | false ] (thanks, @Eltord!)
@@ -1593,66 +1601,66 @@ caffeinate -dimsu -w $symPID &
 # Pre-flight Check: Ensure computer is connected to AC power (thanks, Josh!)
 # https://github.com/kc9wwh/macOSUpgrade/blob/master/macOSUpgrade.sh
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
-function acPowerCheck() {
-
-    preFlight "Ensure computer is connected to AC power"
-
-    # Amount of time (in seconds) to allow a user to connect to AC power before exiting
-    # If 0, then the user will not have the opportunity to connect to AC power
-    acPowerWaitTimer="300"
-    humanReadablePowerWaitTimer=$(printf '%dh:%dm:%ds\n' $((acPowerWaitTimer/3600)) $((acPowerWaitTimer%3600/60)) $((acPowerWaitTimer%60)))
-
-    function waitForPower() {
-
-        preFlight "Waiting for AC power …"
-
-        while [[ "$acPowerWaitTimer" -gt "0" ]]; do
-            if pmset -g ps | grep "AC Power" > /dev/null ; then
-                preFlight "AC power detected; proceeding …"
-                killProcess "osascript"
-                return
-            fi
-            sleep 1
-            ((acPowerWaitTimer--))
-        done
-        killProcess "osascript"
-        preFlight "No AC power detected, exiting"
-        osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
-        exit 1
-
-    }
-
-
-
-    # Check if computer is on AC power
-    # If not — and the `acPowerWaitTimer` is greater than 1 — allow user to connect to power for the specified time period
-
-    if pmset -g ps | grep "AC Power" > /dev/null ; then
-
-        preFlight "AC power detected; proceeding …"
-
-    else
-
-        if [[ "$acPowerWaitTimer" -gt 0 ]]; then
-
-            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding.\r\rPlease connect your computer to power using an AC power adapter.\r\rThis process will wait for '${humanReadablePowerWaitTimer}' for AC power to be connected.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
-            waitForPower
-
-        else
-
-            preFlight "No AC power detected, exiting"
-            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
-            exit 1
-
-        fi
-
-    fi
-
-}
-
-acPowerCheck # Comment-out to disable
-
+# 
+# function acPowerCheck() {
+# 
+#     preFlight "Ensure computer is connected to AC power"
+# 
+#     # Amount of time (in seconds) to allow a user to connect to AC power before exiting
+#     # If 0, then the user will not have the opportunity to connect to AC power
+#     acPowerWaitTimer="300"
+#     humanReadablePowerWaitTimer=$(printf '%dh:%dm:%ds\n' $((acPowerWaitTimer/3600)) $((acPowerWaitTimer%3600/60)) $((acPowerWaitTimer%60)))
+# 
+#     function waitForPower() {
+# 
+#         preFlight "Waiting for AC power …"
+# 
+#         while [[ "$acPowerWaitTimer" -gt "0" ]]; do
+#             if pmset -g ps | grep "AC Power" > /dev/null ; then
+#                 preFlight "AC power detected; proceeding …"
+#                 killProcess "osascript"
+#                 return
+#             fi
+#             sleep 1
+#             ((acPowerWaitTimer--))
+#         done
+#         killProcess "osascript"
+#         preFlight "No AC power detected, exiting"
+#         osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
+#         exit 1
+# 
+#     }
+# 
+# 
+# 
+#     # Check if computer is on AC power
+#     # If not — and the `acPowerWaitTimer` is greater than 1 — allow user to connect to power for the specified time period
+# 
+#     if pmset -g ps | grep "AC Power" > /dev/null ; then
+# 
+#         preFlight "AC power detected; proceeding …"
+# 
+#     else
+# 
+#         if [[ "$acPowerWaitTimer" -gt 0 ]]; then
+# 
+#             osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding.\r\rPlease connect your computer to power using an AC power adapter.\r\rThis process will wait for '${humanReadablePowerWaitTimer}' for AC power to be connected.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
+#             waitForPower
+# 
+#         else
+# 
+#             preFlight "No AC power detected, exiting"
+#             osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
+#             exit 1
+# 
+#         fi
+# 
+#     fi
+# 
+# }
+# 
+# acPowerCheck # Comment-out to disable
+# 
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -2185,19 +2193,19 @@ helpmessage+="- **Started:** ${timestamp}"
 infobox="Analyzing input …" # Customize at "Update Setup Your Mac's infobox"
 
 
-# Create `overlayicon` from Self Service's custom icon (thanks, @meschwartz!)
-xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'\r'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
-overlayicon="/var/tmp/overlayicon.icns"
-
-# Uncomment to use generic, Self Service icon as overlayicon
-# overlayicon="https://ics.services.jamfcloud.com/icon/hash_aa63d5813d6ed4846b623ed82acdd1562779bf3716f2d432a8ee533bba8950ee"
-
-# Set initial icon based on whether the Mac is a desktop or laptop
-if system_profiler SPPowerDataType | grep -q "Battery Power"; then
-    icon="SF=laptopcomputer.and.arrow.down,weight=semibold,colour1=#ef9d51,colour2=#ef7951"
-else
-    icon="SF=desktopcomputer.and.arrow.down,weight=semibold,colour1=#ef9d51,colour2=#ef7951"
-fi
+# # Create `overlayicon` from Self Service's custom icon (thanks, @meschwartz!)
+# xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'\r'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
+# overlayicon="/var/tmp/overlayicon.icns"
+# 
+# # Uncomment to use generic, Self Service icon as overlayicon
+# # overlayicon="https://ics.services.jamfcloud.com/icon/hash_aa63d5813d6ed4846b623ed82acdd1562779bf3716f2d432a8ee533bba8950ee"
+# 
+# # Set initial icon based on whether the Mac is a desktop or laptop
+# if system_profiler SPPowerDataType | grep -q "Battery Power"; then
+#     icon="SF=laptopcomputer.and.arrow.down,weight=semibold,colour1=#ef9d51,colour2=#ef7951"
+# else
+#     icon="SF=desktopcomputer.and.arrow.down,weight=semibold,colour1=#ef9d51,colour2=#ef7951"
+# fi
 
 
 
