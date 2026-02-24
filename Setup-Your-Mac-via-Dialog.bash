@@ -1,5 +1,5 @@
 #!/bin/bash
-# shellcheck disable=SC2001,SC1111,SC1112,SC2143,SC2145,SC2086,SC2089,SC2090,SC2269
+# shellcheck disable=SC2001,SC1111,SC1112,SC2143,SC2145,SC2086,SC2089,SC2090,SC2269,SC2154
 
 ####################################################################################################
 #
@@ -10,23 +10,19 @@
 #
 # HISTORY
 #
-#   Version 1.15.0, 11-Jun-2024
-#   - Added logging functions
-#   - Modified Microsoft Teams Message `activitySubtitle`
-#   - Activated main "Setup Your Mac" dialog with each `listitem`
-#   - Added swiftDialog `2.5.0`'s `--verbose`, `--debug` and `--resizable` flags to debugModes
-#   - Failure Message: Increased `sleep` value from `0.3` to `0.7` (thanks, for the report, @arnoldtaw; thanks for the code suggestion, @jcmbowman)
-#   - Miscellaneous formatting and clean-up
-#   - Added Support Team fields (thanks, @HowardGMac!)
-#   - Set `swiftDialogMinimumRequiredVersion` to `2.5.0.4768`
-#   - Improved exit code processing for 'Welcome' dialog
-#   - Added pre-flight check for AC power (thanks for the suggestion, @arnoldtaw; thanks for the code, Obi-Josh!)
-#   - Added Variables for Prefill Email and Computer Name (thanks, @AndrewMBarnett!)
-#   - Improved Remote Validation error-checking
-#   - Updated Dynamic Download Estimates for macOS 15 Sequoia
-#
-#   Version 1.15.1, 06-Feb-2025
-#   - Fixed minor issue with `calculateFreeDiskSpace` function result not being parsed into scriptLog
+#   Version 1.16.0, 19-Feb-2026
+#   - Added proof-of-concept validations for swiftDialog `2.5.1`'s "blurscreen" control
+#   - Removed vendor-specific Local Validations (in favor of Remote Validations)
+#   - Updated Configuration `policyJSON` to better match internal usage
+#   - Added "activate" command to Validations
+#   - Updated the Microsoft Teams message template to the new format (Pull Request #156; thanks, @nlopezUA!)
+#   - Simplify Client-side Logging (thanks, @DevliegereM!)
+#   - Added proof-of-concept validations for swiftDialog `2.5.6`'s "hide or show" dialog window
+#   - Updated Dynamic Download Estimates for macOS 26 (and beyond)
+#   - Updated for swiftDialog `3.0.0`
+#   - Updated `checkNetworkQualityCatchAllConfiguration` for macOS 26 (thanks for the heads-up, @Harald Brouwers!)
+#   - Added new salutation banner greeting, based on time o’ day (Pull Request #171; thanks, @ScottEKendall!)
+#   - Add configurable battery threshold to AC power pre-flight check (Pull Request #175; thanks, @owainri!)
 #
 ####################################################################################################
 
@@ -42,7 +38,7 @@
 # Script Version and Jamf Pro Script Parameters
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-scriptVersion="1.15.1"
+scriptVersion="1.16.0"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 scriptLog="${4:-"/var/log/org.churchofjesuschrist.log"}"                        # Parameter 4: Script Log Location [ /var/log/org.churchofjesuschrist.log ] (i.e., Your organization's default location for client-side logs)
 debugMode="${5:-"verbose"}"                                                     # Parameter 5: Debug Mode [ verbose (default) | true | false ]
@@ -52,7 +48,7 @@ requiredMinimumBuild="${8:-"disabled"}"                                         
 outdatedOsAction="${9:-"/System/Library/CoreServices/Software Update.app"}"     # Parameter 9: Outdated OS Action [ /System/Library/CoreServices/Software Update.app (default) | jamfselfservice://content?entity=policy&id=117&action=view ] (i.e., Jamf Pro Self Service policy ID for operating system ugprades)
 webhookURL="${10:-""}"                                                          # Parameter 10: Microsoft Teams or Slack Webhook URL [ Leave blank to disable (default) | https://microsoftTeams.webhook.com/URL | https://hooks.slack.com/services/URL ] Can be used to send a success or failure message to Microsoft Teams or Slack via Webhook. (Function will automatically detect if Webhook URL is for Slack or Teams; can be modified to include other communication tools that support functionality.)
 presetConfiguration="${11:-""}"                                                 # Parameter 11: Specify a Configuration (i.e., `policyJSON`; NOTE: If set, `promptForConfiguration` will be automatically suppressed and the preselected configuration will be used instead)
-swiftDialogMinimumRequiredVersion="2.5.0.4768"                                  # This will be set and updated as dependancies on newer features change.
+swiftDialogMinimumRequiredVersion="2.5.6.4805"                                  # This will be set and updated as dependancies on newer features change.
 
 
 
@@ -64,6 +60,7 @@ humanReadableScriptName="Setup Your Mac"    # Script Human-readable Name
 organizationScriptName="sym"                # Organization's Script Name
 debugModeSleepAmount="3"                    # Delay for various actions when running in Debug Mode
 failureDialog="true"                        # Display the so-called "Failure" dialog (after the main SYM dialog) [ true | false ]
+requiredMinimumBatteryPercentage="25"       # Minimum battery percentage allowed to run without AC power. Set to "0" to always require AC power (original behaviour).
 
 
 
@@ -115,7 +112,7 @@ emailEnding="@company.com"
 positionList=$( echo "${positionListRaw}" | tr ',' '\n' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
 
 # [SYM-Helper] Branding overrides
-brandingBanner="https://img.freepik.com/free-photo/liquid-marbling-paint-texture-background-fluid-painting-abstract-texture-intensive-color-mix-wallpaper_1258-101465.jpg" # [Image by benzoix on Freepik](https://www.freepik.com/author/benzoix)
+brandingBanner="https://img.freepik.com/free-photo/liquid-purple-art-painting-abstract-colorful-background-with-color-splash-paints-modern-art_1258-102943.jpg" # [Image by benzoix on Freepik](https://www.freepik.com/author/benzoix)
 brandingBannerDisplayText="true"
 brandingIconLight="https://cdn-icons-png.flaticon.com/512/979/979585.png"
 brandingIconDark="https://cdn-icons-png.flaticon.com/512/740/740878.png"
@@ -186,68 +183,23 @@ configurationThreeInstallBuffer="0"         # Buffer time added to estimates to 
 ####################################################################################################
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# Client-side Logging
+# Client-side Logging (thanks, @DevliegereM!)
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-function updateScriptLog() {
-    echo -e "${organizationScriptName} ($scriptVersion): $( date +%Y-%m-%d\ %H:%M:%S ) - ${1}" | tee -a "${scriptLog}"
+function logMessage() {
+    local logType="$1"
+    local message="$2"
+    echo -e "${organizationScriptName} ($scriptVersion): $(date +%Y-%m-%d\ %H:%M:%S) - [${logType}] ${message}" | tee -a "${scriptLog}"
 }
 
-function preFlight() {
-    updateScriptLog "[PRE-FLIGHT]                ${1}"
-}
 
-function logComment() {
-    updateScriptLog "                            ${1}"
-}
-
-function welcomeDialog() {
-    updateScriptLog "[WELCOME DIALOG]            ${1}"
-}
-
-function error() {
-    updateScriptLog "[ERROR]                     ${1}"
-}
-
-function fatal() {
-    updateScriptLog "[FATAL ERROR]               ${1}"
-    exit 1
-}
-
-function info() {
-    updateScriptLog "[INFO]                      ${1}"
-}
-
-function updateSetupYourMacDialog() {
-    updateScriptLog "[SETUP YOUR MAC DIALOG]     ${1}"
-}
-
-function updateFailureDialog() {
-    updateScriptLog "[FAILURE DIALOG]            ${1}"
-}
-
-function updateSuccessDialog() {
-    updateScriptLog "[SUCCESS]                   ${1}"
-}
-
-function finaliseUserExperience() {
-    updateScriptLog "[FINALISE USER EXPERIENCE]  ${1}"
-}
-
-function completionActionOut() {
-    updateScriptLog "[COMPLETION ACTION]         ${1}"
-}
-
-function quitOut() {
-    updateScriptLog "[QUIT SCRIPT]               ${1}"
-}
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # Output Line Number in `verbose` Debug Mode (thanks, @bartreardon!)
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 function outputLineNumberInVerboseDebugMode() {
-    if [[ "${debugMode}" == "verbose" ]]; then updateScriptLog "# # # SETUP YOUR MAC VERBOSE DEBUG MODE: Line No. ${BASH_LINENO[0]} # # #" ; fi
+    if [[ "${debugMode}" == "verbose" ]]; then logMessage "# # # SETUP YOUR MAC VERBOSE DEBUG MODE: Line No. ${BASH_LINENO[0]} # # #" ; fi
 }
 
 
@@ -258,9 +210,29 @@ function outputLineNumberInVerboseDebugMode() {
 
 function runAsUser() {
 
-    info "Run \"$@\" as \"$loggedInUserID\" … "
+    logMessage "INFO" "Run \"$@\" as \"$loggedInUserID\" … "
     launchctl asuser "$loggedInUserID" sudo -u "$loggedInUser" "$@"
 
+}
+
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# "Welcome" dialog greeting, based on time o’ day (thanks, @ScottEKendall!)
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+function greeting() {
+    local hour
+    hour=$(date +%H)
+    hour=$((10#$hour))   # force decimal (base-10), avoids 08/09 octal issue
+
+    if (( hour <= 11 )); then
+        echo "Good morning,"
+    elif (( hour <= 18 )); then
+        echo "Good afternoon,"
+    else
+        echo "Good evening,"
+    fi
 }
 
 
@@ -290,6 +262,7 @@ function calculateFreeDiskSpace() {
 
 function dialogUpdateWelcome(){
     echo "$1" >> "$welcomeCommandFile"
+    sleep 0.3
 }
 
 
@@ -299,8 +272,9 @@ function dialogUpdateWelcome(){
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 function dialogUpdateSetupYourMac() {
-    updateSetupYourMacDialog "$1"
+    logMessage "SETUP YOUR MAC DIALOG" "$1"
     echo "$1" >> "$setupYourMacCommandFile"
+    sleep 0.3
 }
 
 
@@ -310,8 +284,9 @@ function dialogUpdateSetupYourMac() {
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 function dialogUpdateFailure(){
-    updateFailureDialog "$1"
+    logMessage "FAILURE DIALOG" "$1"
     echo "$1" >> "$failureCommandFile"
+    sleep 0.3
 }
 
 
@@ -328,16 +303,16 @@ function finalise(){
 
         outputLineNumberInVerboseDebugMode
         calculateFreeDiskSpace
-        finaliseUserExperience "${diskMessage}"
+        logMessage "FINALISE USER EXPERIENCE" "${diskMessage}"
 
     fi
 
     if [[ "${jamfProPolicyTriggerFailure}" == "failed" ]]; then
 
         outputLineNumberInVerboseDebugMode
-        updateFailureDialog "Failed policies detected …"
+        logMessage "FAILURE DIALOG" "Failed policies detected …"
         if [[ -n "${webhookURL}" ]]; then
-            updateFailureDialog "Display Failure dialog: Sending webhook message"
+            logMessage "FAILURE DIALOG" "Display Failure dialog: Sending webhook message"
             webhookStatus="Failures detected"
             webHookMessage
         fi
@@ -345,7 +320,7 @@ function finalise(){
         if [[ "${failureDialog}" == "true" ]]; then
 
             outputLineNumberInVerboseDebugMode
-            updateFailureDialog "Display Failure dialog: ${failureDialog}"
+            logMessage "FAILURE DIALOG" "Display Failure dialog: ${failureDialog}"
 
             killProcess "caffeinate"
             if [[ "${brandingBannerDisplayText}" == "true" ]] ; then dialogUpdateSetupYourMac "title: Sorry ${loggedInUserFirstname}, something went sideways"; fi
@@ -361,9 +336,9 @@ function finalise(){
             dialogUpdateSetupYourMac "quit:"
             eval "${dialogFailureCMD}" & sleep 0.7
 
-            updateFailureDialog "\n\n# # #\n# FAILURE DIALOG\n# # #\n"
-            updateFailureDialog "Jamf Pro Policy Name Failures:"
-            updateFailureDialog "${jamfProPolicyNameFailures}"
+            logMessage "FAILURE DIALOG" "\n\n# # #\n# FAILURE DIALOG\n# # #\n"
+            logMessage "FAILURE DIALOG" "Jamf Pro Policy Name Failures:"
+            logMessage "FAILURE DIALOG" "${jamfProPolicyNameFailures}"
 
             failureMessage="A failure has been detected, ${loggedInUserFirstname}. \n\nPlease complete the following steps:\n1. Reboot and login to your ${modelName}  \n2. Login to Self Service  \n3. Re-run any failed policy listed below  \n\nThe following failed:  \n${jamfProPolicyNameFailures}"
             
@@ -431,10 +406,10 @@ function finalise(){
     else
 
         outputLineNumberInVerboseDebugMode
-        updateSuccessDialog "All policies executed successfully"
+        logMessage "SUCCESS" "All policies executed successfully"
         if [[ -n "${webhookURL}" ]]; then
             webhookStatus="Successful"
-            updateSuccessDialog "Sending success webhook message"
+            logMessage "SUCCESS" "Sending success webhook message"
             webHookMessage
         fi
 
@@ -490,12 +465,16 @@ function run_jamf_trigger() {
 
     if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
 
-        updateSetupYourMacDialog "DEBUG MODE: TRIGGER: $jamfBinary policy -event $trigger ${suppressRecon}"
+        logMessage "SETUP YOUR MAC DIALOG" "DEBUG MODE: TRIGGER: $jamfBinary policy -event $trigger ${suppressRecon}"
         sleep "${debugModeSleepAmount}"
+
+    elif [[ "${trigger}" == "none" ]] ; then
+
+        logMessage "SETUP YOUR MAC DIALOG" "Trigger of '${trigger}' specified; proceeding to validation …"
 
     else
 
-        updateSetupYourMacDialog "RUNNING: $jamfBinary policy -event $trigger"
+        logMessage "SETUP YOUR MAC DIALOG" "RUNNING: $jamfBinary policy -event $trigger"
         eval "${jamfBinary} policy -event ${trigger} ${suppressRecon}"                                     # Add comment for policy testing
         # eval "${jamfBinary} policy -event ${trigger} ${suppressRecon} -verbose | tee -a ${scriptLog}"    # Remove comment for policy testing
 
@@ -515,7 +494,7 @@ function confirmPolicyExecution() {
 
     trigger="${1}"
     validation="${2}"
-    updateSetupYourMacDialog "Confirm Policy Execution: '${trigger}' '${validation}'"
+    logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: '${trigger}' '${validation}'"
     if [ "${suppressReconOnPolicy}" == "true" ]; then suppressRecon="-forceNoRecon"; fi
 
     case ${validation} in
@@ -524,13 +503,13 @@ function confirmPolicyExecution() {
 
             outputLineNumberInVerboseDebugMode
             if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
-                updateSetupYourMacDialog "Confirm Policy Execution: DEBUG MODE: Skipping 'run_jamf_trigger ${trigger}'"
+                logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: DEBUG MODE: Skipping 'run_jamf_trigger ${trigger}'"
                 sleep "${debugModeSleepAmount}"
             elif [[ -e "${validation}" ]]; then
-                updateSetupYourMacDialog "Confirm Policy Execution: ${validation} exists; skipping 'run_jamf_trigger ${trigger}'"
+                logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation} exists; skipping 'run_jamf_trigger ${trigger}'"
                 previouslyInstalled="true"
             else
-                updateSetupYourMacDialog "Confirm Policy Execution: ${validation} does NOT exist; executing 'run_jamf_trigger ${trigger}'"
+                logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation} does NOT exist; executing 'run_jamf_trigger ${trigger}'"
                 previouslyInstalled="false"
                 run_jamf_trigger "${trigger}"
             fi
@@ -539,7 +518,7 @@ function confirmPolicyExecution() {
         "None" | "none" )
 
             outputLineNumberInVerboseDebugMode
-            updateSetupYourMacDialog "Confirm Policy Execution: ${validation}"
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation}"
             if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
                 sleep "${debugModeSleepAmount}"
             else
@@ -550,22 +529,66 @@ function confirmPolicyExecution() {
         "Recon" | "recon" )
 
             outputLineNumberInVerboseDebugMode
-            updateSetupYourMacDialog "Confirm Policy Execution: ${validation}"
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation}"
             if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
-                updateSetupYourMacDialog "DEBUG MODE: Set 'debugMode' to false to update computer inventory with the following 'reconOptions': \"${reconOptions}\" …"
+                logMessage "SETUP YOUR MAC DIALOG" "DEBUG MODE: Set 'debugMode' to false to update computer inventory with the following 'reconOptions': \"${reconOptions}\" …"
                 sleep "${debugModeSleepAmount}"
             else
-                updateSetupYourMacDialog "Updating computer inventory with the following 'reconOptions': \"${reconOptions}\" …"
+                logMessage "SETUP YOUR MAC DIALOG" "Updating computer inventory with the following 'reconOptions': \"${reconOptions}\" …"
                 dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Updating …, "
                 reconRaw=$( eval "${jamfBinary} recon ${reconOptions} -verbose | tee -a ${scriptLog}" )
                 computerID=$( echo "${reconRaw}" | grep '<computer_id>' | xmllint --xpath xmllint --xpath '/computer_id/text()' - )
             fi
             ;;
 
+        "Blurscreen On" | "blurscreen on" )
+
+            outputLineNumberInVerboseDebugMode
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation}"
+            if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
+                sleep "${debugModeSleepAmount}"
+            else
+                dialogUpdateSetupYourMac "blurscreen: enable"
+            fi
+            ;;
+
+        "Blurscreen Off" | "blurscreen off" )
+
+            outputLineNumberInVerboseDebugMode
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation}"
+            if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
+                sleep "${debugModeSleepAmount}"
+            else
+                dialogUpdateSetupYourMac "blurscreen: disable"
+            fi
+            ;;
+
+        "Hide Dialog" | "hide dialog" )
+
+            outputLineNumberInVerboseDebugMode
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation}"
+            if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
+                sleep "${debugModeSleepAmount}"
+            else
+                dialogUpdateSetupYourMac "hide: "
+            fi
+            ;;
+
+        "Show Dialog" | "show dialog" )
+
+            outputLineNumberInVerboseDebugMode
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation}"
+            if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
+                sleep "${debugModeSleepAmount}"
+            else
+                dialogUpdateSetupYourMac "show: "
+            fi
+            ;;
+
         * )
 
             outputLineNumberInVerboseDebugMode
-            updateSetupYourMacDialog "Confirm Policy Execution Catch-all: ${validation}"
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution Catch-all: ${validation}"
             if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
                 sleep "${debugModeSleepAmount}"
             else
@@ -589,7 +612,7 @@ function validatePolicyResult() {
 
     trigger="${1}"
     validation="${2}"
-    updateSetupYourMacDialog "Validate Policy Result: '${trigger}' '${validation}'"
+    logMessage "SETUP YOUR MAC DIALOG" "Validate Policy Result: '${trigger}' '${validation}'"
 
     case ${validation} in
 
@@ -599,7 +622,7 @@ function validatePolicyResult() {
         ###
 
         */* ) 
-            updateSetupYourMacDialog "Validate Policy Result: Testing for \"$validation\" …"
+            logMessage "SETUP YOUR MAC DIALOG" "Validate Policy Result: Testing for \"$validation\" …"
             if [[ "${previouslyInstalled}" == "true" ]]; then
                 dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Previously Installed"
             elif [[ -e "${validation}" ]]; then
@@ -622,19 +645,20 @@ function validatePolicyResult() {
         "Local" )
             case ${trigger} in
                 rosetta ) 
-                    updateSetupYourMacDialog "Locally Validate Policy Result: Rosetta 2 … " # Thanks, @smithjw!
+                    logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: Rosetta 2 … " # Thanks, @smithjw!
                     dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Checking …"
+                    dialogUpdateSetupYourMac "activate:"
                     arch=$( /usr/bin/arch )
                     if [[ "${arch}" == "arm64" ]]; then
                         # Mac with Apple silicon; check for Rosetta
                         rosettaTest=$( arch -x86_64 /usr/bin/true 2> /dev/null ; echo $? )
                         if [[ "${rosettaTest}" -eq 0 ]]; then
                             # Installed
-                            updateSetupYourMacDialog "Locally Validate Policy Result: Rosetta 2 is installed"
+                            logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: Rosetta 2 is installed"
                             dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Running"
                         else
                             # Not Installed
-                            updateSetupYourMacDialog "Locally Validate Policy Result: Rosetta 2 is NOT installed"
+                            logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: Rosetta 2 is NOT installed"
                             dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                             jamfProPolicyTriggerFailure="failed"
                             exitCode="1"
@@ -642,25 +666,26 @@ function validatePolicyResult() {
                         fi
                     else
                         # Ineligible
-                        updateSetupYourMacDialog "Locally Validate Policy Result: Rosetta 2 is not applicable"
+                        logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: Rosetta 2 is not applicable"
                         dialogUpdateSetupYourMac "listitem: index: $i, status: error, statustext: Ineligible"
                     fi
                     ;;
                 filevault )
-                    updateSetupYourMacDialog "Locally Validate Policy Result: Validate FileVault … "
+                    logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: Validate FileVault … "
                     dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Checking …"
-                    updateSetupYourMacDialog "Validate Policy Result: Pausing for 5 seconds for FileVault … "
+                    dialogUpdateSetupYourMac "activate:"
+                    logMessage "SETUP YOUR MAC DIALOG" "Validate Policy Result: Pausing for 5 seconds for FileVault … "
                     sleep 5 # Arbitrary value; tuning needed
                     fileVaultCheck=$( fdesetup isactive )
                     if [[ -f /Library/Preferences/com.apple.fdesetup.plist ]] || [[ "$fileVaultCheck" == "true" ]]; then
                         fileVaultStatus=$( fdesetup status -extended -verbose 2>&1 )
                         case ${fileVaultStatus} in
                             *"FileVault is On."* ) 
-                                updateSetupYourMacDialog "Locally Validate Policy Result: FileVault: FileVault is On."
+                                logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: FileVault: FileVault is On."
                                 dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Enabled"
                                 ;;
                             *"Deferred enablement appears to be active for user"* )
-                                updateSetupYourMacDialog "Locally Validate Policy Result: FileVault: Enabled"
+                                logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: FileVault: Enabled"
                                 dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Enabled (next login)"
                                 ;;
                             *  )
@@ -671,89 +696,7 @@ function validatePolicyResult() {
                                 ;;
                         esac
                     else
-                        updateSetupYourMacDialog "Locally Validate Policy Result: '/Library/Preferences/com.apple.fdesetup.plist' NOT Found"
-                        dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
-                        jamfProPolicyTriggerFailure="failed"
-                        exitCode="1"
-                        jamfProPolicyNameFailures+="• $listitem  \n"
-                    fi
-                    ;;
-                sophosEndpointServices )
-                    updateSetupYourMacDialog "Locally Validate Policy Result: Sophos Endpoint RTS Status … "
-                    dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Checking …"
-                    if [[ -d /Applications/Sophos/Sophos\ Endpoint.app ]]; then
-                        if [[ -f /Library/Preferences/com.sophos.sav.plist ]]; then
-                            sophosOnAccessRunning=$( /usr/bin/defaults read /Library/Preferences/com.sophos.sav.plist OnAccessRunning )
-                            case ${sophosOnAccessRunning} in
-                                "0" ) 
-                                    updateSetupYourMacDialog "Locally Validate Policy Result: Sophos Endpoint RTS Status: Disabled"
-                                    dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
-                                    jamfProPolicyTriggerFailure="failed"
-                                    exitCode="1"
-                                    jamfProPolicyNameFailures+="• $listitem  \n"
-                                    ;;
-                                "1" )
-                                    updateSetupYourMacDialog "Locally Validate Policy Result: Sophos Endpoint RTS Status: Enabled"
-                                    dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Running"
-                                    ;;
-                                *  )
-                                    updateSetupYourMacDialog "Locally Validate Policy Result: Sophos Endpoint RTS Status: Unknown"
-                                    dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Unknown"
-                                    jamfProPolicyTriggerFailure="failed"
-                                    exitCode="1"
-                                    jamfProPolicyNameFailures+="• $listitem  \n"
-                                    ;;
-                            esac
-                        else
-                            updateSetupYourMacDialog "Locally Validate Policy Result: Sophos Endpoint Not Found"
-                            dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
-                            jamfProPolicyTriggerFailure="failed"
-                            exitCode="1"
-                            jamfProPolicyNameFailures+="• $listitem  \n"
-                        fi
-                    else
-                        dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
-                        jamfProPolicyTriggerFailure="failed"
-                        exitCode="1"
-                        jamfProPolicyNameFailures+="• $listitem  \n"
-                    fi
-                    ;;
-                globalProtect )
-                    updateSetupYourMacDialog "Locally Validate Policy Result: Palo Alto Networks GlobalProtect Status … "
-                    dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Checking …"
-                    if [[ -d /Applications/GlobalProtect.app ]]; then
-                        updateSetupYourMacDialog "Locally Validate Policy Result: Pausing for 10 seconds to allow Palo Alto Networks GlobalProtect Services … "
-                        sleep 10 # Arbitrary value; tuning needed
-                        if [[ -f /Library/Preferences/com.paloaltonetworks.GlobalProtect.settings.plist ]]; then
-                            globalProtectStatus=$( /usr/libexec/PlistBuddy -c "print :Palo\ Alto\ Networks:GlobalProtect:PanGPS:disable-globalprotect" /Library/Preferences/com.paloaltonetworks.GlobalProtect.settings.plist )
-                            case "${globalProtectStatus}" in
-                                "0" )
-                                    updateSetupYourMacDialog "Locally Validate Policy Result: Palo Alto Networks GlobalProtect Status: Enabled"
-                                    dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Running"
-                                    ;;
-                                "1" )
-                                    updateSetupYourMacDialog "Locally Validate Policy Result: Palo Alto Networks GlobalProtect Status: Disabled"
-                                    dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
-                                    jamfProPolicyTriggerFailure="failed"
-                                    exitCode="1"
-                                    jamfProPolicyNameFailures+="• $listitem  \n"
-                                    ;;
-                                *  )
-                                    updateSetupYourMacDialog "Locally Validate Policy Result: Palo Alto Networks GlobalProtect Status: Unknown"
-                                    dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Unknown"
-                                    jamfProPolicyTriggerFailure="failed"
-                                    exitCode="1"
-                                    jamfProPolicyNameFailures+="• $listitem  \n"
-                                    ;;
-                            esac
-                        else
-                            updateSetupYourMacDialog "Locally Validate Policy Result: Palo Alto Networks GlobalProtect Not Found"
-                            dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
-                            jamfProPolicyTriggerFailure="failed"
-                            exitCode="1"
-                            jamfProPolicyNameFailures+="• $listitem  \n"
-                        fi
-                    else
+                        logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: '/Library/Preferences/com.apple.fdesetup.plist' NOT Found"
                         dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
                         jamfProPolicyTriggerFailure="failed"
                         exitCode="1"
@@ -761,7 +704,7 @@ function validatePolicyResult() {
                     fi
                     ;;
                 * )
-                    updateSetupYourMacDialog "Locally Validate Policy Result: Local Validation “${validation}” Missing"
+                    logMessage "SETUP YOUR MAC DIALOG" "Locally Validate Policy Result: Local Validation “${validation}” Missing"
                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Missing Local “${validation}” Validation"
                     jamfProPolicyTriggerFailure="failed"
                     exitCode="1"
@@ -780,12 +723,13 @@ function validatePolicyResult() {
 
         "Remote" )
             if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
-                updateSetupYourMacDialog "DEBUG MODE: Remotely Confirm Policy Execution: Skipping 'run_jamf_trigger ${trigger}'"
+                logMessage "SETUP YOUR MAC DIALOG" "DEBUG MODE: Remotely Confirm Policy Execution: Skipping 'run_jamf_trigger ${trigger}'"
                 dialogUpdateSetupYourMac "listitem: index: $i, status: error, statustext: Debug Mode Enabled"
                 sleep 0.5
             else
-                updateSetupYourMacDialog "Remotely Validate '${trigger}' '${validation}'"
+                logMessage "SETUP YOUR MAC DIALOG" "Remotely Validate '${trigger}' '${validation}'"
                 dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Checking …"
+                dialogUpdateSetupYourMac "activate:"
                 result=$( "${jamfBinary}" policy -event "${trigger}" | grep "Script result:" )
                 if [[ "${result}" == *"Failed"* ]]; then
                     dialogUpdateSetupYourMac "listitem: index: $i, status: fail, statustext: Failed"
@@ -812,10 +756,10 @@ function validatePolicyResult() {
         # (Always evaluates as: 'success' and 'Installed')
         ###
 
-        "None" | "none")
+        "None" | "none" | *"Blurscreen"* | *"blurscreen"* )
 
             outputLineNumberInVerboseDebugMode
-            updateSetupYourMacDialog "Confirm Policy Execution: ${validation}"
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation}"
             dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Installed"
             ;;
 
@@ -829,7 +773,7 @@ function validatePolicyResult() {
         "Recon" | "recon" )
 
             outputLineNumberInVerboseDebugMode
-            updateSetupYourMacDialog "Confirm Policy Execution: ${validation}"
+            logMessage "SETUP YOUR MAC DIALOG" "Confirm Policy Execution: ${validation}"
             dialogUpdateSetupYourMac "listitem: index: $i, status: success, statustext: Updated"
             ;;
 
@@ -842,7 +786,7 @@ function validatePolicyResult() {
         * )
 
             outputLineNumberInVerboseDebugMode
-            updateSetupYourMacDialog "Validate Policy Results Catch-all: ${validation}"
+            logMessage "SETUP YOUR MAC DIALOG" "Validate Policy Results Catch-all: ${validation}"
             dialogUpdateSetupYourMac "listitem: index: $i, status: error, statustext: Error"
             ;;
 
@@ -859,14 +803,14 @@ function validatePolicyResult() {
 function killProcess() {
     process="$1"
     if process_pid=$( pgrep -a "${process}" 2>/dev/null ) ; then
-        info "Attempting to terminate the '$process' process …"
-        info "(Termination message indicates success.)"
+        logMessage "INFO" "Attempting to terminate the '$process' process …"
+        logMessage "INFO" "(Termination message indicates success.)"
         kill "$process_pid" 2> /dev/null
         if pgrep -a "$process" >/dev/null ; then
-            error "'$process' could not be terminated."
+            logMessage "ERROR" "'$process' could not be terminated."
         fi
     else
-        info "The '$process' process isn't running."
+        logMessage "INFO" "The '$process' process isn't running."
     fi
 }
 
@@ -893,7 +837,7 @@ function completionAction() {
         case ${completionActionOption} in
 
             "Shut Down" )
-                completionActionOut "Shut Down sans user interaction"
+                logMessage "COMPLETION ACTION" "Shut Down sans user interaction"
                 killProcess "Self Service"
                 # runAsUser osascript -e 'tell app "System Events" to shut down'
                 # sleep 5 && runAsUser osascript -e 'tell app "System Events" to shut down' &
@@ -901,7 +845,7 @@ function completionAction() {
                 ;;
 
             "Shut Down Attended" )
-                completionActionOut "Shut Down, requiring user-interaction"
+                logMessage "COMPLETION ACTION" "Shut Down, requiring user-interaction"
                 killProcess "Self Service"
                 wait
                 # runAsUser osascript -e 'tell app "System Events" to shut down'
@@ -910,12 +854,12 @@ function completionAction() {
                 ;;
 
             "Shut Down Confirm" )
-                completionActionOut "Shut down, only after macOS time-out or user confirmation"
+                logMessage "COMPLETION ACTION" "Shut down, only after macOS time-out or user confirmation"
                 runAsUser osascript -e 'tell app "loginwindow" to «event aevtrsdn»'
                 ;;
 
             "Restart" )
-                completionActionOut "Restart sans user interaction"
+                logMessage "COMPLETION ACTION" "Restart sans user interaction"
                 killProcess "Self Service"
                 # runAsUser osascript -e 'tell app "System Events" to restart'
                 # sleep 5 && runAsUser osascript -e 'tell app "System Events" to restart' &
@@ -923,7 +867,7 @@ function completionAction() {
                 ;;
 
             "Restart Attended" )
-                completionActionOut "Restart, requiring user-interaction"
+                logMessage "COMPLETION ACTION" "Restart, requiring user-interaction"
                 killProcess "Self Service"
                 wait
                 # runAsUser osascript -e 'tell app "System Events" to restart'
@@ -932,12 +876,12 @@ function completionAction() {
                 ;;
 
             "Restart Confirm" )
-                completionActionOut "Restart, only after macOS time-out or user confirmation"
+                logMessage "COMPLETION ACTION" "Restart, only after macOS time-out or user confirmation"
                 runAsUser osascript -e 'tell app "loginwindow" to «event aevtrrst»'
                 ;;
 
             "Log Out" )
-                completionActionOut "Log out sans user interaction"
+                logMessage "COMPLETION ACTION" "Log out sans user interaction"
                 killProcess "Self Service"
                 # sleep 5 && runAsUser osascript -e 'tell app "loginwindow" to «event aevtrlgo»'
                 # sleep 5 && runAsUser osascript -e 'tell app "loginwindow" to «event aevtrlgo»' &
@@ -945,7 +889,7 @@ function completionAction() {
                 ;;
 
             "Log Out Attended" )
-                completionActionOut "Log out, requiring user-interaction"
+                logMessage "COMPLETION ACTION" "Log out, requiring user-interaction"
                 killProcess "Self Service"
                 wait
                 # sleep 5 && runAsUser osascript -e 'tell app "loginwindow" to «event aevtrlgo»'
@@ -954,30 +898,30 @@ function completionAction() {
                 ;;
 
             "Log Out Confirm" )
-                completionActionOut "Log out, only after macOS time-out or user confirmation"
+                logMessage "COMPLETION ACTION" "Log out, only after macOS time-out or user confirmation"
                 sleep 5 && runAsUser osascript -e 'tell app "System Events" to log out'
                 ;;
 
             "Sleep"* )
                 sleepDuration=$( awk '{print $NF}' <<< "${1}" )
-                completionActionOut "Sleeping for ${sleepDuration} seconds …"
+                logMessage "COMPLETION ACTION" "Sleeping for ${sleepDuration} seconds …"
                 sleep "${sleepDuration}"
                 killProcess "Dialog"
-                info "Goodnight!"
+                logMessage "INFO" "Goodnight!"
                 ;;
 
             "Wait" )
-                completionActionOut "Waiting for user interaction …"
+                logMessage "COMPLETION ACTION" "Waiting for user interaction …"
                 wait
                 ;;
 
             "Quit" )
-                completionActionOut "Quitting script"
+                logMessage "COMPLETION ACTION" "Quitting script"
                 exitCode="0"
                 ;;
 
             * )
-                completionActionOut "Using the default of 'wait'"
+                logMessage "COMPLETION ACTION" "Using the default of 'wait'"
                 wait
                 ;;
 
@@ -989,13 +933,13 @@ function completionAction() {
 
     # Remove custom welcomeBannerImageFileName
     if [[ -e "/var/tmp/${welcomeBannerImageFileName}" ]]; then
-        completionActionOut "Removing /var/tmp/${welcomeBannerImageFileName} …"
+        logMessage "COMPLETION ACTION" "Removing /var/tmp/${welcomeBannerImageFileName} …"
         rm "/var/tmp/${welcomeBannerImageFileName}"
     fi
 
     # Remove overlayicon
     if [[ -e ${overlayicon} ]]; then
-        completionActionOut "Removing ${overlayicon} …"
+        logMessage "COMPLETION ACTION" "Removing ${overlayicon} …"
         rm "${overlayicon}"
     fi
 
@@ -1058,7 +1002,7 @@ function setupYourMacDialogInfoboxAnimation() {
 function checkNetworkQualityConfigurations() {
     
     myPID="$$"
-    welcomeDialog "Display Welcome dialog 'infobox' animation …"
+    logMessage "SETUP YOUR MAC DIALOG" "Display Welcome dialog 'infobox' animation …"
     welcomeDialogInfoboxAnimation "$myPID" &
     welcomeDialogInfoboxAnimationPID="$!"
 
@@ -1066,7 +1010,7 @@ function checkNetworkQualityConfigurations() {
     kill ${welcomeDialogInfoboxAnimationPID}
     outputLineNumberInVerboseDebugMode
 
-    welcomeDialog "Completed networkQualityTest …"
+    logMessage "SETUP YOUR MAC DIALOG" "Completed networkQualityTest …"
     networkQualityTest=$( < /var/tmp/networkQualityTest )
     rm /var/tmp/networkQualityTest
 
@@ -1079,7 +1023,7 @@ function checkNetworkQualityConfigurations() {
             dlEndDate="N/A; macOS ${osVersion}"
             ;;
 
-        12* | 13* | 14* | 15* )
+        * )
             dlThroughput=$( get_json_value "$networkQualityTest" "dl_throughput")
             dlResponsiveness=$( get_json_value "$networkQualityTest" "dl_responsiveness" )
             dlStartDate=$( get_json_value "$networkQualityTest" "start_date" )
@@ -1089,26 +1033,26 @@ function checkNetworkQualityConfigurations() {
     esac
 
     mbps=$( echo "scale=2; ( $dlThroughput / 1000000 )" | bc )
-    welcomeDialog "$mbps (Mbps)"
+    logMessage "SETUP YOUR MAC DIALOG"  "$mbps (Mbps)"
 
     configurationOneEstimatedSeconds=$( echo "scale=2; ((((( $configurationOneSize / $mbps ) * 60 ) * 60 ) * $correctionCoefficient ) + $configurationOneInstallBuffer)" | bc | sed 's/\.[0-9]*//' )
-    welcomeDialog "Configuration One Estimated Seconds: $configurationOneEstimatedSeconds"
-    welcomeDialog "Configuration One Estimate: $(printf '%dh:%dm:%ds\n' $((configurationOneEstimatedSeconds/3600)) $((configurationOneEstimatedSeconds%3600/60)) $((configurationOneEstimatedSeconds%60)))"
+    logMessage "SETUP YOUR MAC DIALOG"  "Configuration One Estimated Seconds: $configurationOneEstimatedSeconds"
+    logMessage "SETUP YOUR MAC DIALOG"  "Configuration One Estimate: $(printf '%dh:%dm:%ds\n' $((configurationOneEstimatedSeconds/3600)) $((configurationOneEstimatedSeconds%3600/60)) $((configurationOneEstimatedSeconds%60)))"
 
     configurationTwoEstimatedSeconds=$( echo "scale=2; ((((( $configurationTwoSize / $mbps ) * 60 ) * 60 ) * $correctionCoefficient ) + $configurationTwoInstallBuffer)" | bc | sed 's/\.[0-9]*//' )
-    welcomeDialog "Configuration Two Estimated Seconds: $configurationTwoEstimatedSeconds"
-    welcomeDialog "Configuration Two Estimate: $(printf '%dh:%dm:%ds\n' $((configurationTwoEstimatedSeconds/3600)) $((configurationTwoEstimatedSeconds%3600/60)) $((configurationTwoEstimatedSeconds%60)))"
+    logMessage "SETUP YOUR MAC DIALOG"  "Configuration Two Estimated Seconds: $configurationTwoEstimatedSeconds"
+    logMessage "SETUP YOUR MAC DIALOG"  "Configuration Two Estimate: $(printf '%dh:%dm:%ds\n' $((configurationTwoEstimatedSeconds/3600)) $((configurationTwoEstimatedSeconds%3600/60)) $((configurationTwoEstimatedSeconds%60)))"
 
     configurationThreeEstimatedSeconds=$( echo "scale=2; ((((( $configurationThreeSize / $mbps ) * 60 ) * 60 ) * $correctionCoefficient ) + $configurationThreeInstallBuffer)" | bc | sed 's/\.[0-9]*//' )
-    welcomeDialog "Configuration Three Estimated Seconds: $configurationThreeEstimatedSeconds"
-    welcomeDialog "Configuration Three Estimate: $(printf '%dh:%dm:%ds\n' $((configurationThreeEstimatedSeconds/3600)) $((configurationThreeEstimatedSeconds%3600/60)) $((configurationThreeEstimatedSeconds%60)))"
+    logMessage "SETUP YOUR MAC DIALOG"  "Configuration Three Estimated Seconds: $configurationThreeEstimatedSeconds"
+    logMessage "SETUP YOUR MAC DIALOG"  "Configuration Three Estimate: $(printf '%dh:%dm:%ds\n' $((configurationThreeEstimatedSeconds/3600)) $((configurationThreeEstimatedSeconds%3600/60)) $((configurationThreeEstimatedSeconds%60)))"
 
-    welcomeDialog "Network Quality Test: Started: $dlStartDate, Ended: $dlEndDate; Download: $mbps Mbps, Responsiveness: $dlResponsiveness"
+    logMessage "SETUP YOUR MAC DIALOG"  "Network Quality Test: Started: $dlStartDate, Ended: $dlEndDate; Download: $mbps Mbps, Responsiveness: $dlResponsiveness"
     dialogUpdateWelcome "infobox: **Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimates:**  \n- ${configurationOneName}:  \n$(printf '%dh:%dm:%ds\n' $((configurationOneEstimatedSeconds/3600)) $((configurationOneEstimatedSeconds%3600/60)) $((configurationOneEstimatedSeconds%60)))  \n\n- ${configurationTwoName}:  \n$(printf '%dh:%dm:%ds\n' $((configurationTwoEstimatedSeconds/3600)) $((configurationTwoEstimatedSeconds%3600/60)) $((configurationTwoEstimatedSeconds%60)))  \n\n- ${configurationThreeName}:  \n$(printf '%dh:%dm:%ds\n' $((configurationThreeEstimatedSeconds/3600)) $((configurationThreeEstimatedSeconds%3600/60)) $((configurationThreeEstimatedSeconds%60)))"
 
     # If option to lock the continue button is set to true, enable the continue button now to let the user progress
     if [[ "${lockContinueBeforeEstimations}" == "true" ]]; then
-        welcomeDialog "Enabling Continue Button"
+        logMessage "SETUP YOUR MAC DIALOG"  "Enabling Continue Button"
         dialogUpdateWelcome "button1: enable"
     fi
 }
@@ -1122,7 +1066,7 @@ function checkNetworkQualityConfigurations() {
 function checkNetworkQualityCatchAllConfiguration() {
     
     myPID="$$"
-    updateSetupYourMacDialog "Display Welcome dialog 'infobox' animation …"
+    logMessage "SETUP YOUR MAC DIALOG" "Display Welcome dialog 'infobox' animation …"
     setupYourMacDialogInfoboxAnimation "$myPID" &
     setupYourMacDialogInfoboxAnimationPID="$!"
 
@@ -1130,7 +1074,7 @@ function checkNetworkQualityCatchAllConfiguration() {
     kill ${setupYourMacDialogInfoboxAnimationPID}
     outputLineNumberInVerboseDebugMode
 
-    updateSetupYourMacDialog "Completed networkQualityTest …"
+    logMessage "SETUP YOUR MAC DIALOG" "Completed networkQualityTest …"
     networkQualityTest=$( < /var/tmp/networkQualityTest )
     rm /var/tmp/networkQualityTest
 
@@ -1143,7 +1087,7 @@ function checkNetworkQualityCatchAllConfiguration() {
             dlEndDate="N/A; macOS ${osVersion}"
             ;;
 
-        12* | 13* | 14* | 15* )
+        * )
             dlThroughput=$( get_json_value "$networkQualityTest" "dl_throughput")
             dlResponsiveness=$( get_json_value "$networkQualityTest" "dl_responsiveness" )
             dlStartDate=$( get_json_value "$networkQualityTest" "start_date" )
@@ -1153,16 +1097,16 @@ function checkNetworkQualityCatchAllConfiguration() {
     esac
 
     mbps=$( echo "scale=2; ( $dlThroughput / 1000000 )" | bc )
-    updateSetupYourMacDialog "$mbps (Mbps)"
+    logMessage "SETUP YOUR MAC DIALOG" "$mbps (Mbps)"
 
     configurationCatchAllEstimatedSeconds=$( echo "scale=2; ((((( $configurationCatchAllSize / $mbps ) * 60 ) * 60 ) * $correctionCoefficient ) + $configurationCatchAllInstallBuffer)" | bc | sed 's/\.[0-9]*//' )
-    updateSetupYourMacDialog "Catch-all Configuration Estimated Seconds: $configurationCatchAllEstimatedSeconds"
-    updateSetupYourMacDialog "Catch-all Configuration Estimate: $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
+    logMessage "SETUP YOUR MAC DIALOG" "Catch-all Configuration Estimated Seconds: $configurationCatchAllEstimatedSeconds"
+    logMessage "SETUP YOUR MAC DIALOG" "Catch-all Configuration Estimate: $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
 
-    updateSetupYourMacDialog "Network Quality Test: Started: $dlStartDate, Ended: $dlEndDate; Download: $mbps Mbps, Responsiveness: $dlResponsiveness"
+    logMessage "SETUP YOUR MAC DIALOG" "Network Quality Test: Started: $dlStartDate, Ended: $dlEndDate; Download: $mbps Mbps, Responsiveness: $dlResponsiveness"
     dialogUpdateSetupYourMac "infobox: **Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimates:**  \n- $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
     if [[ "${lockContinueBeforeEstimations}" == "true" ]]; then
-        welcomeDialog "Enabling Continue Button"
+        logMessage "WELCOME DIALOG" "Enabling Continue Button"
         dialogUpdateWelcome "button1: enable"
     fi
 }
@@ -1195,7 +1139,7 @@ function webHookMessage() {
 
     if [[ $webhookURL == *"slack"* ]]; then
         
-        info "Generating Slack Message …"
+        logMessage "INFO" "Generating Slack Message …"
         
         webHookdata=$(cat <<EOF
         {
@@ -1261,68 +1205,119 @@ EOF
 )
 
         # Send the message to Slack
-        info "Send the message to Slack …"
-        info "${webHookdata}"
+        logMessage "INFO" "Send the message to Slack …"
+        logMessage "INFO" "${webHookdata}"
         
         # Submit the data to Slack
         /usr/bin/curl -sSX POST -H 'Content-type: application/json' --data "${webHookdata}" $webhookURL 2>&1
         
         webhookResult="$?"
-        info "Slack Webhook Result: ${webhookResult}"
+        logMessage "INFO" "Slack Webhook Result: ${webhookResult}"
         
     else
         
-        info "Generating Microsoft Teams Message …"
+        logMessage "INFO" "Generating Microsoft Teams Message …"
 
         # URL to an image to add to your notification
-        activityImage="https://creazilla-store.fra1.digitaloceanspaces.com/cliparts/78010/old-mac-computer-clipart-md.png"
+        # activityImage="https://ics.services.jamfcloud.com/icon/hash_d75d2250498be4cdfc75956d88dc7204dabf886a51396d0e99dbd75759e151ed"
 
         webHookdata=$(cat <<EOF
-{
-    "@type": "MessageCard",
-    "@context": "http://schema.org/extensions",
-    "themeColor": "E4002B",
-    "summary": "New Mac Enrollment: '${webhookStatus}'",
-    "sections": [{
-        "activityTitle": "New Mac Enrollment: ${webhookStatus}",
-        "activitySubtitle": "${serialNumber}",
-        "activityImage": "${activityImage}",
-        "facts": [{
-            "name": "Computer Name",
-            "value": "$( scutil --get ComputerName )"
-        }, {
-            "name": "Timestamp",
-            "value": "${timestamp}"
-        }, {
-            "name": "Configuration",
-            "value": "${symConfiguration}"
-        }, {
-            "name": "User",
-            "value": "${loggedInUser}"
-        }, {
-            "name": "Operating System Version",
-            "value": "${osVersion} (${osBuild})"
-        }, {
-            "name": "Additional Comments",
-            "value": "${jamfProPolicyNameFailures}"
-}],
-        "markdown": true,
-        "potentialAction": [{
-        "@type": "OpenUri",
-        "name": "View in Jamf Pro",
-        "targets": [{
-        "os": "default",
-            "uri": "${jamfProComputerURL}"
-            }]
-        }]
-    }]
-}
+        {
+            "type": "message",
+            "attachments": [
+                {
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "contentUrl": null,
+                    "content": {
+                        "type": "AdaptiveCard",
+                        "body": [
+                            {
+                                "type": "TextBlock",
+                                "size": "Large",
+                                "weight": "Bolder",
+                                "text": "New Mac Enrollment: ${webhookStatus}"
+                            },
+                            {
+                                "type": "ColumnSet",
+                                "columns": [
+                                    {
+                                        "type": "Column",
+                                        "items": [
+                                            {
+                                                "type": "Image",
+                                                "url": "https://ics.services.jamfcloud.com/icon/hash_d75d2250498be4cdfc75956d88dc7204dabf886a51396d0e99dbd75759e151ed",
+                                                "altText": "SYM",
+                                                "size": "Small"
+                                            }
+                                        ],
+                                        "width": "auto"
+                                    },
+                                    {
+                                        "type": "Column",
+                                        "items": [
+                                            {
+                                                "type": "TextBlock",
+                                                "weight": "Bolder",
+                                                "text": "$( scutil --get ComputerName )",
+                                                "wrap": true
+                                            },
+                                            {
+                                                "type": "TextBlock",
+                                                "spacing": "None",
+                                                "text": "${serialNumber}",
+                                                "isSubtle": true,
+                                                "wrap": true
+                                            }
+                                        ],
+                                        "width": "stretch"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "FactSet",
+                                "facts": [
+                                    {
+                                        "title": "Timestamp",
+                                        "value": "${timestamp}"
+                                    },
+                                    {
+                                        "title": "Configuration",
+                                        "value": "${symConfiguration}"
+                                    },
+                                    {
+                                        "title": "User",
+                                        "value": "${loggedInUser}"
+                                    },
+                                    {
+                                        "title": "Operating System",
+                                        "value": "${osVersion} (${osBuild})"
+                                    },
+                                    {
+                                        "title": "Additional Comments",
+                                        "value": "${jamfProPolicyNameFailures}"
+                                    }
+                                ]
+                            }
+                        ],
+                        "actions": [
+                            {
+                                "type": "Action.OpenUrl",
+                                "title": "View in Jamf Pro",
+                                "url": "${jamfProComputerURL}"
+                            }
+                        ],
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "version": "1.2"
+                    }
+                }
+            ]
+        }
 EOF
 )
 
     # Send the message to Microsoft Teams
-    info "Send the message Microsoft Teams …"
-    info "${webHookdata}"
+    logMessage "INFO" "Send the message Microsoft Teams …"
+    logMessage "INFO" "${webHookdata}"
 
     curl --request POST \
     --url "${webhookURL}" \
@@ -1330,7 +1325,7 @@ EOF
     --data "${webHookdata}"
     
     webhookResult="$?"
-    info "Microsoft Teams Webhook Result: ${webhookResult}"
+    logMessage "INFO" "Microsoft Teams Webhook Result: ${webhookResult}"
     
     fi
     
@@ -1346,44 +1341,44 @@ function quitScript() {
 
     outputLineNumberInVerboseDebugMode
 
-    quitOut "Exiting …"
+    logMessage "QUIT SCRIPT" "Exiting …"
 
     # Stop `caffeinate` process
-    quitOut "De-caffeinate …"
+    logMessage "QUIT SCRIPT" "De-caffeinate …"
     killProcess "caffeinate"
 
     # Toggle `jamf` binary check-in 
-    if [[ "${completionActionOption}" == "Log Out"* ]] || [[ "${completionActionOption}" == "Sleep"* ]] || [[ "${completionActionOption}" == "Quit" ]] || [[ "${completionActionOption}" == "wait" ]] ; then
+    if [[ "${completionActionOption}" == "Log Out"* ]] || [[ "${completionActionOption}" == "Sleep"* ]] || [[ "${completionActionOption}" == "Quit" ]] || [[ "${completionActionOption}" == "Wait" ]] || [[ "${completionActionOption}" == "wait" ]] ; then
         toggleJamfLaunchDaemon
     fi
     
     # Remove welcomeCommandFile
     if [[ -e ${welcomeCommandFile} ]]; then
-        quitOut "Removing ${welcomeCommandFile} …"
+        logMessage "QUIT SCRIPT" "Removing ${welcomeCommandFile} …"
         rm "${welcomeCommandFile}"
     fi
 
     # Remove welcomeJSONFile
     if [[ -e ${welcomeJSONFile} ]]; then
-        quitOut "Removing ${welcomeJSONFile} …"
+        logMessage "QUIT SCRIPT" "Removing ${welcomeJSONFile} …"
         rm "${welcomeJSONFile}"
     fi
 
     # Remove setupYourMacCommandFile
     if [[ -e ${setupYourMacCommandFile} ]]; then
-        quitOut "Removing ${setupYourMacCommandFile} …"
+        logMessage "QUIT SCRIPT" "Removing ${setupYourMacCommandFile} …"
         rm "${setupYourMacCommandFile}"
     fi
 
     # Remove failureCommandFile
     if [[ -e ${failureCommandFile} ]]; then
-        quitOut "Removing ${failureCommandFile} …"
+        logMessage "QUIT SCRIPT" "Removing ${failureCommandFile} …"
         rm "${failureCommandFile}"
     fi
 
     # Remove any default dialog file
     if [[ -e /var/tmp/dialog.log ]]; then
-        quitOut "Removing default dialog file …"
+        logMessage "QUIT SCRIPT" "Removing default dialog file …"
         rm /var/tmp/dialog.log
     fi
 
@@ -1392,13 +1387,13 @@ function quitScript() {
         
         # Remove custom welcomeBannerImageFileName
         if [[ -e "/var/tmp/${welcomeBannerImageFileName}" ]]; then
-            completionActionOut "Removing /var/tmp/${welcomeBannerImageFileName} …"
+            logMessage "COMPLETION ACTION" "Removing /var/tmp/${welcomeBannerImageFileName} …"
             rm "/var/tmp/${welcomeBannerImageFileName}"
         fi
 
         # Remove overlayicon
         if [[ -e ${overlayicon} ]]; then
-            completionActionOut "Removing ${overlayicon} …"
+            logMessage "COMPLETION ACTION" "Removing ${overlayicon} …"
             rm "${overlayicon}"
         fi
         
@@ -1407,7 +1402,7 @@ function quitScript() {
     
     else
     
-        quitOut "Executing Completion Action Option: '${completionActionOption}' …"
+        logMessage "QUIT SCRIPT" "Executing Completion Action Option: '${completionActionOption}' …"
         completionAction "${completionActionOption}"
     
     fi
@@ -1429,12 +1424,12 @@ function quitScript() {
 if [[ ! -f "${scriptLog}" ]]; then
     touch "${scriptLog}"
     if [[ -f "${scriptLog}" ]]; then
-        preFlight "Created specified scriptLog: ${scriptLog}"
+        logMessage "PRE-FLIGHT" "Created specified scriptLog: ${scriptLog}"
     else
-        fatal "Unable to create specified scriptLog '${scriptLog}'; exiting.\n\n(Is this script running as 'root' ?)"
+        logMessage "FATAL ERROR" "Unable to create specified scriptLog '${scriptLog}'; exiting.\n\n(Is this script running as 'root' ?)"
     fi
 else
-    preFlight "Specified scriptLog '${scriptLog}' exists; writing log entries to it"
+    logMessage "PRE-FLIGHT" "Specified scriptLog '${scriptLog}' exists; writing log entries to it"
 fi
 
 
@@ -1445,7 +1440,7 @@ fi
 
 function currentLoggedInUser() {
     loggedInUser=$( echo "show State:/Users/ConsoleUser" | scutil | awk '/Name :/ { print $3 }' )
-    preFlight "Current Logged-in User: ${loggedInUser}"
+    logMessage "PRE-FLIGHT" "Current Logged-in User: ${loggedInUser}"
 }
 
 
@@ -1454,8 +1449,8 @@ function currentLoggedInUser() {
 # Pre-flight Check: Logging Preamble
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-preFlight "\n\n###\n# $humanReadableScriptName (${scriptVersion})\n# https://snelson.us/sym\n###\n"
-preFlight "Initiating …"
+logMessage "PRE-FLIGHT" "\n\n###\n# $humanReadableScriptName (${scriptVersion})\n# https://snelson.us/sym\n###\n"
+logMessage "PRE-FLIGHT" "Initiating …"
 
 
 
@@ -1464,7 +1459,7 @@ preFlight "Initiating …"
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 if [[ "$BASH" != "/bin/bash" ]] ; then
-    preFlight "This script must be run under 'bash', please do not run it using 'sh', 'zsh', etc.; exiting."
+    logMessage "PRE-FLIGHT" "This script must be run under 'bash', please do not run it using 'sh', 'zsh', etc.; exiting."
     exit 1
 fi
 
@@ -1475,7 +1470,7 @@ fi
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 if [[ $(id -u) -ne 0 ]]; then
-    preFlight "This script must be run as root; exiting."
+    logMessage "PRE-FLIGHT" "This script must be run as root; exiting."
     exit 1
 fi
 
@@ -1486,11 +1481,11 @@ fi
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 while pgrep -q -x "Setup Assistant"; do
-    preFlight "Setup Assistant is still running; pausing for 2 seconds"
+    logMessage "PRE-FLIGHT" "Setup Assistant is still running; pausing for 2 seconds"
     sleep 2
 done
 
-preFlight "Setup Assistant is no longer running; proceeding …"
+logMessage "PRE-FLIGHT" "Setup Assistant is no longer running; proceeding …"
 
 
 
@@ -1499,11 +1494,11 @@ preFlight "Setup Assistant is no longer running; proceeding …"
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 until pgrep -q -x "Finder" && pgrep -q -x "Dock"; do
-    preFlight "Finder & Dock are NOT running; pausing for 1 second"
+    logMessage "PRE-FLIGHT" "Finder & Dock are NOT running; pausing for 1 second"
     sleep 1
 done
 
-preFlight "Finder & Dock are running; proceeding …"
+logMessage "PRE-FLIGHT" "Finder & Dock are running; proceeding …"
 
 
 
@@ -1511,14 +1506,14 @@ preFlight "Finder & Dock are running; proceeding …"
 # Pre-flight Check: Validate Logged-in System Accounts
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-preFlight "Check for Logged-in System Accounts …"
+logMessage "PRE-FLIGHT" "Check for Logged-in System Accounts …"
 currentLoggedInUser
 
 counter="1"
 
 until { [[ "${loggedInUser}" != "_mbsetupuser" ]] || [[ "${counter}" -gt "180" ]]; } && { [[ "${loggedInUser}" != "loginwindow" ]] || [[ "${counter}" -gt "30" ]]; } ; do
 
-    preFlight "Logged-in User Counter: ${counter}"
+    logMessage "PRE-FLIGHT" "Logged-in User Counter: ${counter}"
     currentLoggedInUser
     sleep 2
     ((counter++))
@@ -1528,8 +1523,8 @@ done
 loggedInUserFullname=$( id -F "${loggedInUser}" )
 loggedInUserFirstname=$( echo "$loggedInUserFullname" | sed -E 's/^.*, // ; s/([^ ]*).*/\1/' | sed 's/\(.\{25\}\).*/\1…/' | awk '{print ( $0 == toupper($0) ? toupper(substr($0,1,1))substr(tolower($0),2) : toupper(substr($0,1,1))substr($0,2) )}' )
 loggedInUserID=$( id -u "${loggedInUser}" )
-preFlight "Current Logged-in User First Name: ${loggedInUserFirstname}"
-preFlight "Current Logged-in User ID: ${loggedInUserID}"
+logMessage "PRE-FLIGHT" "Current Logged-in User First Name: ${loggedInUserFirstname}"
+logMessage "PRE-FLIGHT" "Current Logged-in User ID: ${loggedInUserID}"
 
 
 
@@ -1539,26 +1534,26 @@ preFlight "Current Logged-in User ID: ${loggedInUserID}"
 
 if [[ "${requiredMinimumBuild}" == "disabled" ]]; then
 
-    preFlight "'requiredMinimumBuild' has been set to ${requiredMinimumBuild}; skipping OS validation."
-    preFlight "macOS ${osVersion} (${osBuild}) installed"
+    logMessage "PRE-FLIGHT" "'requiredMinimumBuild' has been set to ${requiredMinimumBuild}; skipping OS validation."
+    logMessage "PRE-FLIGHT" "macOS ${osVersion} (${osBuild}) installed"
 
 else
 
     # Since swiftDialog requires at least macOS 12 Monterey, first confirm the major OS version
     if [[ "${osMajorVersion}" -ge 12 ]] ; then
 
-        preFlight "macOS ${osMajorVersion} installed; checking build version ..."
+        logMessage "PRE-FLIGHT" "macOS ${osMajorVersion} installed; checking build version ..."
 
         # Confirm the Mac is running `requiredMinimumBuild` (or later)
         if [[ "${osBuild}" > "${requiredMinimumBuild}" ]]; then
 
-            preFlight "macOS ${osVersion} (${osBuild}) installed; proceeding ..."
+            logMessage "PRE-FLIGHT" "macOS ${osVersion} (${osBuild}) installed; proceeding ..."
 
         # When the current `osBuild` is older than `requiredMinimumBuild`; exit with error
         else
-            preFlight "The installed operating system, macOS ${osVersion} (${osBuild}), needs to be updated to Build ${requiredMinimumBuild}; exiting with error."
+            logMessage "PRE-FLIGHT" "The installed operating system, macOS ${osVersion} (${osBuild}), needs to be updated to Build ${requiredMinimumBuild}; exiting with error."
             osascript -e 'display dialog "Please advise your Support Representative of the following error:\r\rExpected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}').\r\r" with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
-            preFlight "Executing /usr/bin/open '${outdatedOsAction}' …"
+            logMessage "PRE-FLIGHT" "Executing /usr/bin/open '${outdatedOsAction}' …"
             su - "${loggedInUser}" -c "/usr/bin/open \"${outdatedOsAction}\""
             exit 1
 
@@ -1567,9 +1562,9 @@ else
     # The Mac is running an operating system older than macOS 12 Monterey; exit with error
     else
 
-        preFlight "swiftDialog requires at least macOS 12 Monterey and this Mac is running ${osVersion} (${osBuild}), exiting with error."
+        logMessage "PRE-FLIGHT" "swiftDialog requires at least macOS 12 Monterey and this Mac is running ${osVersion} (${osBuild}), exiting with error."
         osascript -e 'display dialog "Please advise your Support Representative of the following error:\r\rExpected macOS Build '${requiredMinimumBuild}' (or newer), but found macOS '${osVersion}' ('${osBuild}').\r\r" with title "Setup Your Mac: Detected Outdated Operating System" buttons {"Open Software Update"} with icon caution'
-        preFlight "Executing /usr/bin/open '${outdatedOsAction}' …"
+        logMessage "PRE-FLIGHT" "Executing /usr/bin/open '${outdatedOsAction}' …"
         su - "${loggedInUser}" -c "/usr/bin/open \"${outdatedOsAction}\""
         exit 1
 
@@ -1584,32 +1579,44 @@ fi
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 symPID="$$"
-preFlight "Caffeinating this script (PID: $symPID)"
+logMessage "PRE-FLIGHT" "Caffeinating this script (PID: $symPID)"
 caffeinate -dimsu -w $symPID &
 
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# Pre-flight Check: Ensure computer is connected to AC power (thanks, Josh!)
-# https://github.com/kc9wwh/macOSUpgrade/blob/master/macOSUpgrade.sh
+# Pre-flight Check: Ensure computer is connected to AC power (thanks, @kc9wwh and @owainri!)
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 function acPowerCheck() {
 
-    preFlight "Ensure computer is connected to AC power"
+    logMessage "PRE-FLIGHT" "Ensure computer is connected to AC power"
 
     # Amount of time (in seconds) to allow a user to connect to AC power before exiting
     # If 0, then the user will not have the opportunity to connect to AC power
     acPowerWaitTimer="300"
-    humanReadablePowerWaitTimer=$(printf '%dh:%dm:%ds\n' $((acPowerWaitTimer/3600)) $((acPowerWaitTimer%3600/60)) $((acPowerWaitTimer%60)))
+    humanReadablePowerWaitTimer="$((acPowerWaitTimer / 60)) minutes"
+    endTime=$(date -v+${acPowerWaitTimer}S +"%H:%M")
+
+    # Read current battery percentage as an integer (eg 79)
+    currentBatteryPercentage=$(pmset -g batt | grep -Eo "[0-9]+%" | head -1 | tr -d '%')
+
+    if [[ -n "${currentBatteryPercentage}" ]]; then
+        logMessage "PRE-FLIGHT" "Current battery level: ${currentBatteryPercentage}%"
+    else
+        logMessage "PRE-FLIGHT" "Unable to determine current battery level; treating as 0%."
+        currentBatteryPercentage="0"
+    fi
+
+    logMessage "PRE-FLIGHT" "Required minimum battery percentage (to run without AC): ${requiredMinimumBatteryPercentage}%"
 
     function waitForPower() {
 
-        preFlight "Waiting for AC power …"
+        logMessage "PRE-FLIGHT" "Waiting for AC power …"
 
         while [[ "$acPowerWaitTimer" -gt "0" ]]; do
             if pmset -g ps | grep "AC Power" > /dev/null ; then
-                preFlight "AC power detected; proceeding …"
+                logMessage "PRE-FLIGHT" "AC power detected; proceeding …"
                 killProcess "osascript"
                 return
             fi
@@ -1617,32 +1624,48 @@ function acPowerCheck() {
             ((acPowerWaitTimer--))
         done
         killProcess "osascript"
-        preFlight "No AC power detected, exiting"
-        osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
+        logMessage "PRE-FLIGHT" "No AC power detected, exiting"
+        osascript -e 'display dialog "Setup Your Mac needs the battery to be at least '"${requiredMinimumBatteryPercentage}"'% to run without AC power.\r\rSetup Your Mac waited '"${humanReadablePowerWaitTimer}"' for AC power to be connected, but none was detected.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
         exit 1
 
     }
 
 
 
-    # Check if computer is on AC power
-    # If not — and the `acPowerWaitTimer` is greater than 1 — allow user to connect to power for the specified time period
+    # Check if computer is on AC power.
+    # If not, allow running on battery if it meets the configured minimum percentage.
+    # Otherwise, fall back to original behaviour and require AC.
 
     if pmset -g ps | grep "AC Power" > /dev/null ; then
 
-        preFlight "AC power detected; proceeding …"
+        logMessage "PRE-FLIGHT" "AC power detected; proceeding …"
+        return
 
     else
 
-        if [[ "$acPowerWaitTimer" -gt 0 ]]; then
+        # Allow running on battery if:
+        # - requiredMinimumBatteryPercentage > 0
+        # - currentBatteryPercentage >= requiredMinimumBatteryPercentage
+        if [[ -n "${requiredMinimumBatteryPercentage}" ]] \
+           && [[ "${requiredMinimumBatteryPercentage}" -gt 0 ]] \
+           && [[ -n "${currentBatteryPercentage}" ]] \
+           && [[ "${currentBatteryPercentage}" -ge "${requiredMinimumBatteryPercentage}" ]]; then
 
-            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding.\r\rPlease connect your computer to power using an AC power adapter.\r\rThis process will wait for '${humanReadablePowerWaitTimer}' for AC power to be connected.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
+            logMessage "PRE-FLIGHT" "Running on battery power (${currentBatteryPercentage}%) which meets required minimum (${requiredMinimumBatteryPercentage}%); proceeding without AC …"
+            return
+        fi
+
+        # Otherwise, enforce AC requirement (existing behaviour)
+        logMessage "PRE-FLIGHT" "Battery level ${currentBatteryPercentage}% is below required minimum (${requiredMinimumBatteryPercentage}%) or could not be determined; enforcing AC power requirement."
+
+        if [[ "$acPowerWaitTimer" -gt 0 ]]; then
+            osascript -e 'display dialog "Setup Your Mac needs the battery to be at least '"${requiredMinimumBatteryPercentage}"'% to run without AC power.\r\rPlease plug in your power adapter to continue.\r\rWaiting '"${humanReadablePowerWaitTimer}"' (until '"${endTime}"') for AC power before Setup Your Mac quits.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
             waitForPower
 
         else
 
-            preFlight "No AC power detected, exiting"
-            osascript -e 'display dialog "Setup Your Mac requires AC power to be connected before proceeding and waited for '${humanReadablePowerWaitTimer}'.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
+            logMessage "PRE-FLIGHT" "No AC power detected, exiting"
+            osascript -e 'display dialog "Setup Your Mac needs the battery to be at least '"${requiredMinimumBatteryPercentage}"'% to run without AC power.\r\rPlease connect AC power and try again.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution'
             exit 1
 
         fi
@@ -1666,27 +1689,27 @@ function toggleJamfLaunchDaemon() {
     if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
 
         if [[ $(/bin/launchctl list | grep com.jamfsoftware.task.E) ]]; then
-            preFlight "DEBUG MODE: Normally, 'jamf' binary check-in would be temporarily disabled"
+            logMessage "PRE-FLIGHT" "DEBUG MODE: Normally, 'jamf' binary check-in would be temporarily disabled"
         else
-            quitOut "DEBUG MODE: Normally, 'jamf' binary check-in would be re-enabled"
+            logMessage "QUIT SCRIPT" "DEBUG MODE: Normally, 'jamf' binary check-in would be re-enabled"
         fi
 
     else
 
         while [[ ! -f "${jamflaunchDaemon}" ]] ; do
-            preFlight "Waiting for installation of ${jamflaunchDaemon}"
+            logMessage "PRE-FLIGHT" "Waiting for installation of ${jamflaunchDaemon}"
             sleep 0.1
         done
 
         if [[ $(/bin/launchctl list | grep com.jamfsoftware.task.E) ]]; then
 
-            preFlight "Temporarily disable 'jamf' binary check-in"
+            logMessage "PRE-FLIGHT" "Temporarily disable 'jamf' binary check-in"
             /bin/launchctl bootout system "${jamflaunchDaemon}"
 
         else
 
-            quitOut "Re-enabling 'jamf' binary check-in"
-            quitOut "'jamf' binary check-in daemon not loaded, attempting to bootstrap and start"
+            logMessage "QUIT SCRIPT" "Re-enabling 'jamf' binary check-in"
+            logMessage "QUIT SCRIPT" "'jamf' binary check-in daemon not loaded, attempting to bootstrap and start"
             result="0"
 
             until [ $result -eq 3 ]; do
@@ -1695,9 +1718,9 @@ function toggleJamfLaunchDaemon() {
                 result="$?"
 
                 if [ $result = 3 ]; then
-                    quitOut "Staring 'jamf' binary check-in daemon"
+                    logMessage "QUIT SCRIPT" "Staring 'jamf' binary check-in daemon"
                 else
-                    quitOut "Failed to start 'jamf' binary check-in daemon"
+                    logMessage "QUIT SCRIPT" "Failed to start 'jamf' binary check-in daemon"
                 fi
 
             done
@@ -1719,19 +1742,35 @@ toggleJamfLaunchDaemon
 function dialogInstall() {
 
     # Get the URL of the latest PKG From the Dialog GitHub repo
-    dialogURL=$(curl -L --silent --fail "https://api.github.com/repos/swiftDialog/swiftDialog/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
+    dialogURL=$(curl -L --silent --fail --connect-timeout 10 --max-time 30 \
+        "https://api.github.com/repos/swiftDialog/swiftDialog/releases/latest" \
+        | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
+    
+    # Validate URL was retrieved
+    if [[ -z "${dialogURL}" ]]; then
+        logMessage "PRE-FLIGHT" "Failed to retrieve swiftDialog download URL from GitHub API"
+    fi
+    
+    # Validate URL format
+    if [[ ! "${dialogURL}" =~ ^https://github\.com/ ]]; then
+        logMessage "PRE-FLIGHT" "Invalid swiftDialog URL format: ${dialogURL}"
+    fi
 
     # Expected Team ID of the downloaded PKG
     expectedDialogTeamID="PWA5E9TQ59"
 
-    preFlight "Installing swiftDialog..."
+    logMessage "PRE-FLIGHT" "Installing swiftDialog..."
 
     # Create temporary working directory
     workDirectory=$( /usr/bin/basename "$0" )
     tempDirectory=$( /usr/bin/mktemp -d "/private/tmp/$workDirectory.XXXXXX" )
 
-    # Download the installer package
-    /usr/bin/curl --location --silent "$dialogURL" -o "$tempDirectory/Dialog.pkg"
+    # Download the installer package with timeouts
+    if ! curl --location --silent --fail --connect-timeout 10 --max-time 60 \
+             "$dialogURL" -o "$tempDirectory/Dialog.pkg"; then
+        rm -Rf "$tempDirectory"
+        logMessage "PRE-FLIGHT" "Failed to download swiftDialog package"
+    fi
 
     # Verify the download
     teamID=$(/usr/sbin/spctl -a -vv -t install "$tempDirectory/Dialog.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
@@ -1742,7 +1781,7 @@ function dialogInstall() {
         /usr/sbin/installer -pkg "$tempDirectory/Dialog.pkg" -target /
         sleep 2
         dialogVersion=$( /usr/local/bin/dialog --version )
-        preFlight "swiftDialog version ${dialogVersion} installed; proceeding..."
+        logMessage "PRE-FLIGHT" "swiftDialog version ${dialogVersion} installed; proceeding..."
 
     else
 
@@ -1764,25 +1803,28 @@ function dialogInstall() {
 function dialogCheck() {
 
     # Output Line Number in `verbose` Debug Mode
-    if [[ "${debugMode}" == "verbose" ]]; then preFlight "# # # SETUP YOUR MAC VERBOSE DEBUG MODE: Line No. ${LINENO} # # #" ; fi
+    if [[ "${debugMode}" == "verbose" ]]; then logMessage "PRE-FLIGHT" "# # # SETUP YOUR MAC VERBOSE DEBUG MODE: Line No. ${LINENO} # # #" ; fi
 
     # Check for Dialog and install if not found
-    if [ ! -e "/Library/Application Support/Dialog/Dialog.app" ]; then
+    if [[ ! -x "/Library/Application Support/Dialog/Dialog.app" ]]; then
 
-        preFlight "swiftDialog not found. Installing..."
+        logMessage "PRE-FLIGHT" "swiftDialog not found. Installing..."
         dialogInstall
+        if [[ ! -x "/usr/local/bin/dialog" ]]; then
+            logMessage "PRE-FLIGHT" "swiftDialog still not found; are downloads from GitHub blocked on this Mac?"
+        fi
 
     else
 
         dialogVersion=$(/usr/local/bin/dialog --version)
         if [[ "${dialogVersion}" < "${swiftDialogMinimumRequiredVersion}" ]]; then
             
-            preFlight "swiftDialog version ${dialogVersion} found but swiftDialog ${swiftDialogMinimumRequiredVersion} or newer is required; updating..."
+            logMessage "PRE-FLIGHT" "swiftDialog version ${dialogVersion} found but swiftDialog ${swiftDialogMinimumRequiredVersion} or newer is required; updating..."
             dialogInstall
             
         else
 
-        preFlight "swiftDialog version ${dialogVersion} found; proceeding..."
+        logMessage "PRE-FLIGHT" "swiftDialog version ${dialogVersion} found; proceeding..."
 
         fi
     
@@ -1799,12 +1841,12 @@ dialogCheck
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 if [[ -z $supportTeamName ]]; then
-    preFlight "'supportTeamName' must be populated to proceed; exiting"
+    logMessage "PRE-FLIGHT" "'supportTeamName' must be populated to proceed; exiting"
     exit 1
 fi
 
 if [[ -z $supportTeamPhone && -z $supportTeamEmail && -z $supportTeamChat && -z $supportKB ]]; then
-    preFlight "At least ONE 'supportTeam' variable must be populated to proceed; exiting"
+    logMessage "PRE-FLIGHT" "At least ONE 'supportTeam' variable must be populated to proceed; exiting"
     exit 1
 fi
 
@@ -1814,7 +1856,7 @@ fi
 # Pre-flight Check: Complete
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-preFlight "Complete"
+logMessage "PRE-FLIGHT" "Complete"
 
 
 
@@ -1881,9 +1923,10 @@ failureCommandFile=$( mktemp -u /var/tmp/dialogCommandFileFailure.XXX )
 # "Welcome" dialog Title, Message and Icon
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-welcomeTitle="Happy $( date +'%A' ), ${loggedInUserFirstname}!  \nWelcome to your new ${modelName}"
+timeOfDay=$(greeting)
+welcomeTitle="${timeOfDay}, ${loggedInUserFirstname}!  \nWelcome to your new ${modelName}"
 
-welcomeMessage="Please enter the **required** information for your ${modelName}, select your preferred **Configuration** then click **Continue** to start applying settings to your new Mac. \n\nOnce completed, the **Wait** button will be enabled and you‘ll be able to review the results before restarting your ${modelName}."
+welcomeMessage="Please enter the **required** information for your ${modelName}, select your preferred **Configuration** then click **Continue** to start applying settings to your new Mac.  \n\nOnce completed, the **Wait** button will be enabled and you‘ll be able to review the results before restarting your ${modelName}."
 
 if [[ -n "${supportTeamName}" ]]; then
 
@@ -1924,7 +1967,7 @@ else
 fi
 
 if [[ "${brandingBannerDisplayText}" == "true" ]]; then
-    welcomeBannerText="Happy $( date +'%A' ), ${loggedInUserFirstname}!  \nWelcome to your new ${modelName}"
+    welcomeBannerText="$timeOfDay ${loggedInUserFirstname}!  \nWelcome to your new ${modelName}"
 else
     welcomeBannerText=" "
 fi
@@ -1939,34 +1982,34 @@ case ${brandingBanner} in
         welcomeBannerImage="${brandingBanner}"
         bannerImage="${brandingBanner}"
         if curl -L --output /dev/null --silent --head --fail "$welcomeBannerImage" || [ -f "$welcomeBannerImage" ]; then
-            welcomeDialog "brandingBanner is available, using it"
+            logMessage "WELCOME DIALOG" "brandingBanner is available, using it"
         else
-            welcomeDialog "brandingBanner is not available, using a default image"
+            logMessage "WELCOME DIALOG" "brandingBanner is not available, using a default image"
             welcomeBannerImage="https://img.freepik.com/free-vector/green-abstract-geometric-wallpaper_52683-29623.jpg" # Image by pikisuperstar on Freepik
             bannerImage="https://img.freepik.com/free-vector/green-abstract-geometric-wallpaper_52683-29623.jpg" # Image by pikisuperstar on Freepik
         fi
 
         welcomeBannerImageFileName=$( echo ${welcomeBannerImage} | awk -F '/' '{print $NF}' )
-        welcomeDialog "Auto-caching hosted '$welcomeBannerImageFileName' …"
+        logMessage "WELCOME DIALOG" "Auto-caching hosted '$welcomeBannerImageFileName' …"
         curl -L --location --silent "$welcomeBannerImage" -o "/var/tmp/${welcomeBannerImageFileName}"
         welcomeBannerImage="/var/tmp/${welcomeBannerImageFileName}"
         bannerImage="/var/tmp/${welcomeBannerImageFileName}"
         ;;
 
     */* )
-        welcomeDialog "brandingBanner is local file, using it"
+        logMessage "WELCOME DIALOG" "brandingBanner is local file, using it"
         welcomeBannerImage="${brandingBanner}"
         bannerImage="${brandingBanner}"
         ;;
 
     "None" | "none" | "" )
-        welcomeDialog "brandingBanner set to \"None\", or empty"
+        logMessage "WELCOME DIALOG" "brandingBanner set to \"None\", or empty"
         welcomeBannerImage="${brandingBanner}"
         bannerImage="${brandingBanner}"
         ;;
 
     * )
-        welcomeDialog "brandingBanner set to \"None\""
+        logMessage "WELCOME DIALOG" "brandingBanner set to \"None\""
         ;;
 
 esac
@@ -2123,7 +2166,7 @@ welcomeJSON='
     "selectitems" : [
         '${selectItemsJSON}'
     ],
-    "height" : "800"
+    "height" : "1001"
 }
 '
 
@@ -2186,11 +2229,14 @@ infobox="Analyzing input …" # Customize at "Update Setup Your Mac's infobox"
 
 
 # Create `overlayicon` from Self Service's custom icon (thanks, @meschwartz!)
-xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'\r'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
-overlayicon="/var/tmp/overlayicon.icns"
+# xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'\r'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
+# overlayicon="/var/tmp/overlayicon.icns"
 
 # Uncomment to use generic, Self Service icon as overlayicon
-# overlayicon="https://ics.services.jamfcloud.com/icon/hash_aa63d5813d6ed4846b623ed82acdd1562779bf3716f2d432a8ee533bba8950ee"
+overlayicon="https://ics.services.jamfcloud.com/icon/hash_aa63d5813d6ed4846b623ed82acdd1562779bf3716f2d432a8ee533bba8950ee"
+
+# Uncomment to use your company's custom Self Service icon as overlayicon
+# overlayicon="https://company.jamfcloud.com/api/v1/branding-images/download/1"
 
 # Set initial icon based on whether the Mac is a desktop or laptop
 if system_profiler SPPowerDataType | grep -q "Battery Power"; then
@@ -2274,7 +2320,7 @@ function policyJSONConfiguration() {
 
     outputLineNumberInVerboseDebugMode
 
-    welcomeDialog "PolicyJSON Configuration: $symConfiguration"
+    logMessage "WELCOME DIALOG" "PolicyJSON Configuration: $symConfiguration"
 
     case ${symConfiguration} in
 
@@ -2313,50 +2359,90 @@ function policyJSONConfiguration() {
                         ]
                     },
                     {
-                        "listitem": "Sophos Endpoint",
-                        "subtitle": "Catches malware without relying on signatures",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_c70f1acf8c96b99568fec83e165d2a534d111b0510fb561a283d32aa5b01c60c",
-                        "progresstext": "You’ll enjoy next-gen protection with Sophos Endpoint which doesn’t rely on signatures to catch malware.",
+                        "listitem": "BeyondTrust Privilege Management",
+                        "subtitle": "Least-privilege management and application control",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_891ec8508f5cf1335911fc5aba5de17b1aa7739d27e07caaf81dd4482e100697",
+                        "progresstext": "Privilege Management for Mac pairs powerful least-privilege management and application control.",
                         "trigger_list": [
                             {
-                                "trigger": "sophosEndpoint",
-                                "validation": "/Applications/Sophos/Sophos Endpoint.app/Contents/Info.plist"
+                                "trigger": "beyondTrustPMfM",
+                                "validation": "/Applications/PrivilegeManagement.app"
+                            },
+                            {
+                                "trigger": "symvBeyondTrustPMfM",
+                                "validation": "Remote"
                             }
                         ]
                     },
                     {
-                        "listitem": "Sophos Endpoint Services (Remote)",
-                        "subtitle": "Ensures Sophos Endpoint services are running",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_0f68be689684a00a3a054d71a31e43e2362f96c16efa5a560fb61bc1bf41901c",
-                        "progresstext": "Remotely validating Sophos Endpoint services …",
+                        "listitem": "CrowdStrike Falcon",
+                        "subtitle": "Endpoint Detection and Response (EDR)",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_cfde710641259f3a6014739d86893b18feabeb11497e774edbdf3c50b98c378d",
+                        "progresstext": "Technology, intelligence, and expertise come together in CrowdStrike Falcon to deliver security that works.",
                         "trigger_list": [
                             {
-                                "trigger": "symvSophosEndpointRTS",
+                                "trigger": "crowdStrikeFalcon",
+                                "validation": "/Applications/Falcon.app"
+                            },
+                            {
+                                "trigger": "symvCrowdStrikeFalcon",
                                 "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "Cisco Umbrella",
+                        "subtitle": "Cloud-based Content Filtering",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_020cfcf7b86343ec3d66653aa630ec9fd1afad75f51729cb8b18ae9e6ed3c3c8",
+                        "progresstext": "Cisco Umbrella combines multiple security functions so you can extend data protection anywhere.",
+                        "trigger_list": [
+                            {
+                                "trigger": "ciscoUmbrella",
+                                "validation": "/Applications/Cisco/Cisco Secure Client.app"
+                            },
+                            {
+                                "trigger": "symvCiscoUmbrella",
+                                "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "Okta Verify",
+                        "subtitle": "Multifactor Authentication Application",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_136962d8faa0e3089b037401052d8babf572fb810c129d84386fa37d846d2d6d",
+                        "progresstext": "Okta Verify is a multifactor authentication (MFA) application designed to securely verify user identities.",
+                        "trigger_list": [
+                            {
+                                "trigger": "oktaVerify",
+                                "validation": "/Applications/Okta Verify.app"
                             }
                         ]
                     },
                     {
                         "listitem": "Palo Alto GlobalProtect",
                         "subtitle": "Virtual Private Network (VPN) connection to Church headquarters",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_acbf39d8904ad1a772cf71c45d93e373626d379a24f8b1283b88134880acb8ef",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_ca1ee7bc394882e26b8c4b380d4eac39ce5fc7d25d7d90e35984d14756fe57fc",
                         "progresstext": "Use Palo Alto GlobalProtect to establish a Virtual Private Network (VPN) connection to Church headquarters.",
                         "trigger_list": [
                             {
+                                "trigger": "none",
+                                "validation": "Blurscreen Off"
+                            },
+                            {
                                 "trigger": "globalProtect",
-                                "validation": "/Applications/GlobalProtect.app/Contents/Info.plist"
+                                "validation": "/Applications/GlobalProtect.app"
                             }
                         ]
                     },
                     {
-                        "listitem": "Palo Alto GlobalProtect Services (Remote)",
-                        "subtitle": "Ensures GlobalProtect services are running",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_709e8bdf0019e8faf9df85ec0a68545bfdb8bfa1227ac9bed9bba40a1fa8ff42",
-                        "progresstext": "Remotely validating Palo Alto GlobalProtect services …",
+                        "listitem": "Microsoft Teams",
+                        "subtitle": "The hub for teamwork in Microsoft 365",
+                        "icon": "https://usw2.ics.services.jamfcloud.com/icon/hash_0fe09467b4c20a184480f663c02a65c7466287ebb30644264eae65238171d0e8",
+                        "progresstext": "Microsoft Teams is a hub for teamwork in Microsoft 365. Keep all your team’s chats, meetings and files together in one place.",
                         "trigger_list": [
                             {
-                                "trigger": "symvGlobalProtect",
-                                "validation": "Remote"
+                                "trigger": "microsoftteamsnew",
+                                "validation": "/Applications/Microsoft Teams.app"
                             }
                         ]
                     },
@@ -2368,7 +2454,7 @@ function policyJSONConfiguration() {
                         "trigger_list": [
                             {
                                 "trigger": "finalConfiguration",
-                                "validation": "None"
+                                "validation": "Hide Dialog"
                             },
                             {
                                 "trigger": "reconAtReboot",
@@ -2382,6 +2468,14 @@ function policyJSONConfiguration() {
                         "icon": "https://ics.services.jamfcloud.com/icon/hash_ff2147a6c09f5ef73d1c4406d00346811a9c64c0b6b7f36eb52fcb44943d26f9",
                         "progresstext": "A listing of your Mac’s apps and settings — its inventory — is sent automatically to the Jamf Pro server daily.",
                         "trigger_list": [
+                            {
+                                "trigger": "none",
+                                "validation": "Blurscreen On"
+                            },
+                            {
+                                "trigger": "none",
+                                "validation": "Show Dialog"
+                            },
                             {
                                 "trigger": "recon",
                                 "validation": "recon"
@@ -2428,50 +2522,78 @@ function policyJSONConfiguration() {
                         ]
                     },
                     {
-                        "listitem": "Sophos Endpoint",
-                        "subtitle": "Catches malware without relying on signatures",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_c70f1acf8c96b99568fec83e165d2a534d111b0510fb561a283d32aa5b01c60c",
-                        "progresstext": "You’ll enjoy next-gen protection with Sophos Endpoint which doesn’t rely on signatures to catch malware.",
+                        "listitem": "BeyondTrust Privilege Management",
+                        "subtitle": "Least-privilege management and application control",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_891ec8508f5cf1335911fc5aba5de17b1aa7739d27e07caaf81dd4482e100697",
+                        "progresstext": "Privilege Management for Mac pairs powerful least-privilege management and application control.",
                         "trigger_list": [
                             {
-                                "trigger": "sophosEndpoint",
-                                "validation": "/Applications/Sophos/Sophos Endpoint.app/Contents/Info.plist"
+                                "trigger": "beyondTrustPMfM",
+                                "validation": "/Applications/PrivilegeManagement.app"
+                            },
+                            {
+                                "trigger": "symvBeyondTrustPMfM",
+                                "validation": "Remote"
                             }
                         ]
                     },
                     {
-                        "listitem": "Sophos Endpoint Services (Local)",
-                        "subtitle": "Ensures Sophos Endpoint services are running",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_0f68be689684a00a3a054d71a31e43e2362f96c16efa5a560fb61bc1bf41901c",
-                        "progresstext": "Locally validating Sophos Endpoint services …",
+                        "listitem": "CrowdStrike Falcon",
+                        "subtitle": "Endpoint Detection and Response (EDR)",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_cfde710641259f3a6014739d86893b18feabeb11497e774edbdf3c50b98c378d",
+                        "progresstext": "Technology, intelligence, and expertise come together in CrowdStrike Falcon to deliver security that works.",
                         "trigger_list": [
                             {
-                                "trigger": "sophosEndpointServices",
-                                "validation": "Local"
+                                "trigger": "crowdStrikeFalcon",
+                                "validation": "/Applications/Falcon.app"
+                            },
+                            {
+                                "trigger": "symvCrowdStrikeFalcon",
+                                "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "Cisco Umbrella",
+                        "subtitle": "Cloud-based Content Filtering",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_020cfcf7b86343ec3d66653aa630ec9fd1afad75f51729cb8b18ae9e6ed3c3c8",
+                        "progresstext": "Cisco Umbrella combines multiple security functions so you can extend data protection anywhere.",
+                        "trigger_list": [
+                            {
+                                "trigger": "ciscoUmbrella",
+                                "validation": "/Applications/Cisco/Cisco Secure Client.app"
+                            },
+                            {
+                                "trigger": "symvCiscoUmbrella",
+                                "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "Okta Verify",
+                        "subtitle": "Multifactor Authentication Application",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_136962d8faa0e3089b037401052d8babf572fb810c129d84386fa37d846d2d6d",
+                        "progresstext": "Okta Verify is a multifactor authentication (MFA) application designed to securely verify user identities.",
+                        "trigger_list": [
+                            {
+                                "trigger": "oktaVerify",
+                                "validation": "/Applications/Okta Verify.app"
                             }
                         ]
                     },
                     {
                         "listitem": "Palo Alto GlobalProtect",
                         "subtitle": "Virtual Private Network (VPN) connection to Church headquarters",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_acbf39d8904ad1a772cf71c45d93e373626d379a24f8b1283b88134880acb8ef",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_ca1ee7bc394882e26b8c4b380d4eac39ce5fc7d25d7d90e35984d14756fe57fc",
                         "progresstext": "Use Palo Alto GlobalProtect to establish a Virtual Private Network (VPN) connection to Church headquarters.",
                         "trigger_list": [
                             {
-                                "trigger": "globalProtect",
-                                "validation": "/Applications/GlobalProtect.app/Contents/Info.plist"
-                            }
-                        ]
-                    },
-                    {
-                        "listitem": "Palo Alto GlobalProtect Services (Local)",
-                        "subtitle": "Ensures GlobalProtect services are running",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_709e8bdf0019e8faf9df85ec0a68545bfdb8bfa1227ac9bed9bba40a1fa8ff42",
-                        "progresstext": "Locally validating Palo Alto GlobalProtect services …",
-                        "trigger_list": [
+                                "trigger": "none",
+                                "validation": "Blurscreen Off"
+                            },
                             {
                                 "trigger": "globalProtect",
-                                "validation": "Local"
+                                "validation": "/Applications/GlobalProtect.app"
                             }
                         ]
                     },
@@ -2483,7 +2605,7 @@ function policyJSONConfiguration() {
                         "trigger_list": [
                             {
                                 "trigger": "microsoftOffice365",
-                                "validation": "/Applications/Microsoft Outlook.app/Contents/Info.plist"
+                                "validation": "/Applications/Microsoft Outlook.app"
                             },
                             {
                                 "trigger": "symvMicrosoftOffice365",
@@ -2494,12 +2616,12 @@ function policyJSONConfiguration() {
                     {
                         "listitem": "Microsoft Teams",
                         "subtitle": "The hub for teamwork in Microsoft 365",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_dcb65709dba6cffa90a5eeaa54cb548d5ecc3b051f39feadd39e02744f37c19e",
-                        "progresstext": "Microsoft Teams is a hub for teamwork in Microsoft 365. Keep all your team’s chats, meetings and files together in one place.",
+                        "icon": "https://usw2.ics.services.jamfcloud.com/icon/hash_0fe09467b4c20a184480f663c02a65c7466287ebb30644264eae65238171d0e8",
+                        "progresstext": "Microsoft Teams is a hub for teamwork in Office 365. Keep all your team’s chats, meetings and files together in one place.",
                         "trigger_list": [
                             {
-                                "trigger": "microsoftTeams",
-                                "validation": "/Applications/Microsoft Teams classic.app/Contents/Info.plist"
+                                "trigger": "microsoftteamsnew",
+                                "validation": "/Applications/Microsoft Teams.app"
                             }
                         ]
                     },
@@ -2511,7 +2633,7 @@ function policyJSONConfiguration() {
                         "trigger_list": [
                             {
                                 "trigger": "finalConfiguration",
-                                "validation": "None"
+                                "validation": "Hide Dialog"
                             },
                             {
                                 "trigger": "reconAtReboot",
@@ -2525,6 +2647,14 @@ function policyJSONConfiguration() {
                         "icon": "https://ics.services.jamfcloud.com/icon/hash_ff2147a6c09f5ef73d1c4406d00346811a9c64c0b6b7f36eb52fcb44943d26f9",
                         "progresstext": "A listing of your Mac’s apps and settings — its inventory — is sent automatically to the Jamf Pro server daily.",
                         "trigger_list": [
+                            {
+                                "trigger": "none",
+                                "validation": "Blurscreen On"
+                            },
+                            {
+                                "trigger": "none",
+                                "validation": "Show Dialog"
+                            },
                             {
                                 "trigger": "recon",
                                 "validation": "recon"
@@ -2571,74 +2701,78 @@ function policyJSONConfiguration() {
                         ]
                     },
                     {
-                        "listitem": "Sophos Endpoint",
-                        "subtitle": "Catches malware without relying on signatures",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_c70f1acf8c96b99568fec83e165d2a534d111b0510fb561a283d32aa5b01c60c",
-                        "progresstext": "You’ll enjoy next-gen protection with Sophos Endpoint which doesn’t rely on signatures to catch malware.",
+                        "listitem": "BeyondTrust Privilege Management",
+                        "subtitle": "Least-privilege management and application control",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_891ec8508f5cf1335911fc5aba5de17b1aa7739d27e07caaf81dd4482e100697",
+                        "progresstext": "Privilege Management for Mac pairs powerful least-privilege management and application control.",
                         "trigger_list": [
                             {
-                                "trigger": "sophosEndpoint",
-                                "validation": "/Applications/Sophos/Sophos Endpoint.app/Contents/Info.plist"
-                            }
-                        ]
-                    },
-                    {
-                        "listitem": "Sophos Endpoint Services (Local)",
-                        "subtitle": "Ensures Sophos Endpoint services are running",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_0f68be689684a00a3a054d71a31e43e2362f96c16efa5a560fb61bc1bf41901c",
-                        "progresstext": "Locally validating Sophos Endpoint services …",
-                        "trigger_list": [
+                                "trigger": "beyondTrustPMfM",
+                                "validation": "/Applications/PrivilegeManagement.app"
+                            },
                             {
-                                "trigger": "sophosEndpointServices",
-                                "validation": "Local"
-                            }
-                        ]
-                    },
-                    {
-                        "listitem": "Sophos Endpoint Services (Remote)",
-                        "subtitle": "Ensures Sophos Endpoint services are running",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_0f68be689684a00a3a054d71a31e43e2362f96c16efa5a560fb61bc1bf41901c",
-                        "progresstext": "Remotely validating Sophos Endpoint services …",
-                        "trigger_list": [
-                            {
-                                "trigger": "symvSophosEndpointRTS",
+                                "trigger": "symvBeyondTrustPMfM",
                                 "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "CrowdStrike Falcon",
+                        "subtitle": "Endpoint Detection and Response (EDR)",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_cfde710641259f3a6014739d86893b18feabeb11497e774edbdf3c50b98c378d",
+                        "progresstext": "Technology, intelligence, and expertise come together in CrowdStrike Falcon to deliver security that works.",
+                        "trigger_list": [
+                            {
+                                "trigger": "crowdStrikeFalcon",
+                                "validation": "/Applications/Falcon.app"
+                            },
+                            {
+                                "trigger": "symvCrowdStrikeFalcon",
+                                "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "Cisco Umbrella",
+                        "subtitle": "Cloud-based Content Filtering",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_020cfcf7b86343ec3d66653aa630ec9fd1afad75f51729cb8b18ae9e6ed3c3c8",
+                        "progresstext": "Cisco Umbrella combines multiple security functions so you can extend data protection anywhere.",
+                        "trigger_list": [
+                            {
+                                "trigger": "ciscoUmbrella",
+                                "validation": "/Applications/Cisco/Cisco Secure Client.app"
+                            },
+                            {
+                                "trigger": "symvCiscoUmbrella",
+                                "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "Okta Verify",
+                        "subtitle": "Multifactor Authentication Application",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_136962d8faa0e3089b037401052d8babf572fb810c129d84386fa37d846d2d6d",
+                        "progresstext": "Okta Verify is a multifactor authentication (MFA) application designed to securely verify user identities.",
+                        "trigger_list": [
+                            {
+                                "trigger": "oktaVerify",
+                                "validation": "/Applications/Okta Verify.app"
                             }
                         ]
                     },
                     {
                         "listitem": "Palo Alto GlobalProtect",
                         "subtitle": "Virtual Private Network (VPN) connection to Church headquarters",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_acbf39d8904ad1a772cf71c45d93e373626d379a24f8b1283b88134880acb8ef",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_ca1ee7bc394882e26b8c4b380d4eac39ce5fc7d25d7d90e35984d14756fe57fc",
                         "progresstext": "Use Palo Alto GlobalProtect to establish a Virtual Private Network (VPN) connection to Church headquarters.",
                         "trigger_list": [
                             {
-                                "trigger": "globalProtect",
-                                "validation": "/Applications/GlobalProtect.app/Contents/Info.plist"
-                            }
-                        ]
-                    },
-                    {
-                        "listitem": "Palo Alto GlobalProtect Services (Local)",
-                        "subtitle": "Ensures GlobalProtect services are running",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_709e8bdf0019e8faf9df85ec0a68545bfdb8bfa1227ac9bed9bba40a1fa8ff42",
-                        "progresstext": "Locally validating Palo Alto GlobalProtect services …",
-                        "trigger_list": [
+                                "trigger": "none",
+                                "validation": "Blurscreen Off"
+                            },
                             {
                                 "trigger": "globalProtect",
-                                "validation": "Local"
-                            }
-                        ]
-                    },
-                    {
-                        "listitem": "Palo Alto GlobalProtect Services (Remote)",
-                        "subtitle": "Ensures GlobalProtect services are running",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_709e8bdf0019e8faf9df85ec0a68545bfdb8bfa1227ac9bed9bba40a1fa8ff42",
-                        "progresstext": "Remotely validating Palo Alto GlobalProtect services …",
-                        "trigger_list": [
-                            {
-                                "trigger": "symvGlobalProtect",
-                                "validation": "Remote"
+                                "validation": "/Applications/GlobalProtect.app"
                             }
                         ]
                     },
@@ -2650,7 +2784,7 @@ function policyJSONConfiguration() {
                         "trigger_list": [
                             {
                                 "trigger": "microsoftOffice365",
-                                "validation": "/Applications/Microsoft Outlook.app/Contents/Info.plist"
+                                "validation": "/Applications/Microsoft Outlook.app"
                             },
                             {
                                 "trigger": "symvMicrosoftOffice365",
@@ -2661,12 +2795,12 @@ function policyJSONConfiguration() {
                     {
                         "listitem": "Microsoft Teams",
                         "subtitle": "The hub for teamwork in Microsoft 365",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_dcb65709dba6cffa90a5eeaa54cb548d5ecc3b051f39feadd39e02744f37c19e",
-                        "progresstext": "Microsoft Teams is a hub for teamwork in Microsoft 365. Keep all your team’s chats, meetings and files together in one place.",
+                        "icon": "https://usw2.ics.services.jamfcloud.com/icon/hash_0fe09467b4c20a184480f663c02a65c7466287ebb30644264eae65238171d0e8",
+                        "progresstext": "Microsoft Teams is a hub for teamwork in Office 365. Keep all your team’s chats, meetings and files together in one place.",
                         "trigger_list": [
                             {
-                                "trigger": "microsoftTeams",
-                                "validation": "/Applications/Microsoft Teams classic.app/Contents/Info.plist"
+                                "trigger": "microsoftteamsnew",
+                                "validation": "/Applications/Microsoft Teams.app"
                             }
                         ]
                     },
@@ -2678,7 +2812,7 @@ function policyJSONConfiguration() {
                         "trigger_list": [
                             {
                                 "trigger": "adobeAcrobatReader",
-                                "validation": "/Applications/Adobe Acrobat Reader.app/Contents/Info.plist"
+                                "validation": "/Applications/Adobe Acrobat Reader.app"
                             }
                         ]
                     },
@@ -2690,7 +2824,7 @@ function policyJSONConfiguration() {
                         "trigger_list": [
                             {
                                 "trigger": "googleChrome",
-                                "validation": "/Applications/Google Chrome.app/Contents/Info.plist"
+                                "validation": "/Applications/Google Chrome.app"
                             }
                         ]
                     },
@@ -2702,7 +2836,7 @@ function policyJSONConfiguration() {
                         "trigger_list": [
                             {
                                 "trigger": "finalConfiguration",
-                                "validation": "None"
+                                "validation": "Hide Dialog"
                             },
                             {
                                 "trigger": "reconAtReboot",
@@ -2717,6 +2851,14 @@ function policyJSONConfiguration() {
                         "progresstext": "A listing of your Mac’s apps and settings — its inventory — is sent automatically to the Jamf Pro server daily.",
                         "trigger_list": [
                             {
+                                "trigger": "none",
+                                "validation": "Blurscreen On"
+                            },
+                            {
+                                "trigger": "none",
+                                "validation": "Show Dialog"
+                            },
+                            {
                                 "trigger": "recon",
                                 "validation": "recon"
                             }
@@ -2729,7 +2871,7 @@ function policyJSONConfiguration() {
 
         * ) # Catch-all (i.e., used when `welcomeDialog` is set to `video`, `messageOnly` or `false`)
 
-            overlayoverride=""
+            overlayoverride="/System/Library/CoreServices/Finder.app"
             policyJSON='
             {
                 "steps": [
@@ -2762,38 +2904,82 @@ function policyJSONConfiguration() {
                         ]
                     },
                     {
-                        "listitem": "Sophos Endpoint",
-                        "subtitle": "Catches malware without relying on signatures",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_c70f1acf8c96b99568fec83e165d2a534d111b0510fb561a283d32aa5b01c60c",
-                        "progresstext": "You’ll enjoy next-gen protection with Sophos Endpoint which doesn’t rely on signatures to catch malware.",
+                        "listitem": "BeyondTrust Privilege Management",
+                        "subtitle": "Least-privilege management and application control",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_891ec8508f5cf1335911fc5aba5de17b1aa7739d27e07caaf81dd4482e100697",
+                        "progresstext": "Privilege Management for Mac pairs powerful least-privilege management and application control.",
                         "trigger_list": [
                             {
-                                "trigger": "sophosEndpoint",
-                                "validation": "/Applications/Sophos/Sophos Endpoint.app/Contents/Info.plist"
+                                "trigger": "beyondTrustPMfM",
+                                "validation": "/Applications/PrivilegeManagement.app"
                             },
                             {
-                                "trigger": "symvSophosEndpointRTS",
+                                "trigger": "symvBeyondTrustPMfM",
                                 "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "CrowdStrike Falcon",
+                        "subtitle": "Endpoint Detection and Response (EDR)",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_cfde710641259f3a6014739d86893b18feabeb11497e774edbdf3c50b98c378d",
+                        "progresstext": "Technology, intelligence, and expertise come together in CrowdStrike Falcon to deliver security that works.",
+                        "trigger_list": [
+                            {
+                                "trigger": "crowdStrikeFalcon",
+                                "validation": "/Applications/Falcon.app"
+                            },
+                            {
+                                "trigger": "symvCrowdStrikeFalcon",
+                                "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "Cisco Umbrella",
+                        "subtitle": "Cloud-based Content Filtering",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_020cfcf7b86343ec3d66653aa630ec9fd1afad75f51729cb8b18ae9e6ed3c3c8",
+                        "progresstext": "Cisco Umbrella combines multiple security functions so you can extend data protection anywhere.",
+                        "trigger_list": [
+                            {
+                                "trigger": "ciscoUmbrella",
+                                "validation": "/Applications/Cisco/Cisco Secure Client.app"
+                            },
+                            {
+                                "trigger": "symvCiscoUmbrella",
+                                "validation": "Remote"
+                            }
+                        ]
+                    },
+                    {
+                        "listitem": "Okta Verify",
+                        "subtitle": "Multifactor Authentication Application",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_136962d8faa0e3089b037401052d8babf572fb810c129d84386fa37d846d2d6d",
+                        "progresstext": "Okta Verify is a multifactor authentication (MFA) application designed to securely verify user identities.",
+                        "trigger_list": [
+                            {
+                                "trigger": "oktaVerify",
+                                "validation": "/Applications/Okta Verify.app"
                             }
                         ]
                     },
                     {
                         "listitem": "Palo Alto GlobalProtect",
                         "subtitle": "Virtual Private Network (VPN) connection to Church headquarters",
-                        "icon": "https://ics.services.jamfcloud.com/icon/hash_acbf39d8904ad1a772cf71c45d93e373626d379a24f8b1283b88134880acb8ef",
+                        "icon": "https://ics.services.jamfcloud.com/icon/hash_ca1ee7bc394882e26b8c4b380d4eac39ce5fc7d25d7d90e35984d14756fe57fc",
                         "progresstext": "Use Palo Alto GlobalProtect to establish a Virtual Private Network (VPN) connection to Church headquarters.",
                         "trigger_list": [
                             {
-                                "trigger": "globalProtect",
-                                "validation": "/Applications/GlobalProtect.app/Contents/Info.plist"
+                                "trigger": "none",
+                                "validation": "Blurscreen Off"
                             },
                             {
-                                "trigger": "symvGlobalProtect",
-                                "validation": "Remote"
+                                "trigger": "globalProtect",
+                                "validation": "/Applications/GlobalProtect.app"
                             }
                         ]
                     },
-                    {
+                                        {
                         "listitem": "Final Configuration",
                         "subtitle": "Configures remaining Church settings",
                         "icon": "https://ics.services.jamfcloud.com/icon/hash_4723e3e341a7e11e6881e418cf91b157fcc081bdb8948697750e5da3562df728",
@@ -2801,7 +2987,7 @@ function policyJSONConfiguration() {
                         "trigger_list": [
                             {
                                 "trigger": "finalConfiguration",
-                                "validation": "None"
+                                "validation": "Hide Dialog"
                             },
                             {
                                 "trigger": "reconAtReboot",
@@ -2815,6 +3001,14 @@ function policyJSONConfiguration() {
                         "icon": "https://ics.services.jamfcloud.com/icon/hash_ff2147a6c09f5ef73d1c4406d00346811a9c64c0b6b7f36eb52fcb44943d26f9",
                         "progresstext": "A listing of your Mac’s apps and settings — its inventory — is sent automatically to the Jamf Pro server daily.",
                         "trigger_list": [
+                            {
+                                "trigger": "none",
+                                "validation": "Blurscreen On"
+                            },
+                            {
+                                "trigger": "none",
+                                "validation": "Show Dialog"
+                            },
                             {
                                 "trigger": "recon",
                                 "validation": "recon"
@@ -2859,7 +3053,7 @@ dialogFailureCMD="$dialogBinary \
 --icon \"$failureIcon\" \
 --iconsize 125 \
 --width 625 \
---height 45% \
+--height 600 \
 --position topright \
 --button1text \"Close\" \
 --infotext \"$scriptVersion\" \
@@ -2941,7 +3135,7 @@ esac
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
-    updateScriptLog "\n\n###\n# ${scriptVersion}\n###\n"
+    logMessage "\n\n###\n# ${scriptVersion}\n###\n"
 fi
 
 
@@ -2963,7 +3157,7 @@ fi
 
 if [[ "${welcomeDialog}" == "video" ]]; then
 
-    welcomeDialog "Displaying ${welcomeVideoID} …"
+    logMessage "WELCOME DIALOG" "Displaying ${welcomeVideoID} …"
     eval "${dialogBinary} --args ${welcomeVideo}"
 
     outputLineNumberInVerboseDebugMode
@@ -2972,10 +3166,10 @@ if [[ "${welcomeDialog}" == "video" ]]; then
     else
         symConfiguration="Catch-all (video)"
     fi
-    welcomeDialog "Using ${symConfiguration} Configuration …"
+    logMessage "WELCOME DIALOG" "Using ${symConfiguration} Configuration …"
     policyJSONConfiguration
 
-    eval "${dialogSetupYourMacCMD[*]}" & sleep 0.3
+    eval "${dialogSetupYourMacCMD[*]}" & sleep 0.5
     dialogUpdateSetupYourMac "activate:"
     if [[ -n "${overlayoverride}" ]]; then
         dialogUpdateSetupYourMac "overlayicon: ${overlayoverride}"
@@ -2985,7 +3179,7 @@ elif [[ "${welcomeDialog}" == "messageOnly" ]]; then
 
     outputLineNumberInVerboseDebugMode
 
-    welcomeDialog "Displaying ${welcomeDialog} …"
+    logMessage "WELCOME DIALOG" "Displaying ${welcomeDialog} …"
 
     # Construct `welcomeJSON`, sans `textfield` and `selectitems`
     welcomeJSON='
@@ -3021,7 +3215,7 @@ elif [[ "${welcomeDialog}" == "messageOnly" ]]; then
     else
         symConfiguration="Catch-all (messageOnly)"
     fi
-    welcomeDialog "Using ${symConfiguration} Configuration …"
+    logMessage "WELCOME DIALOG" "Using ${symConfiguration} Configuration …"
     policyJSONConfiguration
 
     # Display main SYM dialog
@@ -3041,26 +3235,26 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
         outputLineNumberInVerboseDebugMode
 
         calculateFreeDiskSpace
-        welcomeDialog "${diskMessage}"
+        logMessage "WELCOME DIALOG" "${diskMessage}"
 
-        welcomeDialog "Starting checkNetworkQualityConfigurations …"
+        logMessage "WELCOME DIALOG" "Starting checkNetworkQualityConfigurations …"
         checkNetworkQualityConfigurations &
 
-        welcomeDialog "Write 'welcomeJSON' to $welcomeJSONFile …"
+        logMessage "WELCOME DIALOG" "Write 'welcomeJSON' to $welcomeJSONFile …"
         echo "$welcomeJSON" > "$welcomeJSONFile"
 
         # If option to lock the continue button is set to true, open welcome dialog with button 1 disabled
         if [[ "${lockContinueBeforeEstimations}" == "true" ]]; then
             
             outputLineNumberInVerboseDebugMode
-            welcomeDialog "Display 'Welcome' dialog with disabled Continue Button …"
+            logMessage "WELCOME DIALOG" "Display 'Welcome' dialog with disabled Continue Button …"
             welcomeResults=$( eval "${dialogBinary} --jsonfile ${welcomeJSONFile} --json --button1disabled" )
             welcomeResultsExitCode=$?
             
         else
 
             outputLineNumberInVerboseDebugMode
-            welcomeDialog "Display 'Welcome' dialog …"
+            logMessage "WELCOME DIALOG" "Display 'Welcome' dialog …"
             welcomeResults=$( eval "${dialogBinary} --jsonfile ${welcomeJSONFile} --json" )
             welcomeResultsExitCode=$?
 
@@ -3070,7 +3264,7 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
 
         # Display Welcome dialog, sans estimation of Configuration download times
         outputLineNumberInVerboseDebugMode
-        welcomeDialog "Skipping estimation of Configuration download times"
+        logMessage "WELCOME DIALOG" "Skipping estimation of Configuration download times"
         
         # Write Welcome JSON to disk
         welcomeJSON=${welcomeJSON//Analyzing …/}
@@ -3082,12 +3276,12 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
 
     # Evaluate User Input
     outputLineNumberInVerboseDebugMode
-    logComment "welcomeResultsExitCode: ${welcomeResultsExitCode}"
+    logMessage "COMMENT" "welcomeResultsExitCode: ${welcomeResultsExitCode}"
 
     case "${welcomeResultsExitCode}" in
 
         0)  # Process exit code 0 scenario here
-            welcomeDialog "${loggedInUser} entered information and clicked Continue"
+            logMessage "WELCOME DIALOG" "${loggedInUser} entered information and clicked Continue"
 
             ###
             # Extract the various values from the welcomeResults JSON
@@ -3116,17 +3310,16 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
             # Output the various values from the welcomeResults JSON to the log file
             ###
 
-            welcomeDialog "• Computer Name: $computerName"
-            welcomeDialog "• User Name: $userName"
-            welcomeDialog "• Real Name: $realName"
-            welcomeDialog "• E-mail: $email"
-            welcomeDialog "• Asset Tag: $assetTag"
-            welcomeDialog "• Configuration: $symConfiguration"
-            welcomeDialog "• Department: $department"
-            welcomeDialog "• Building: $building"
-            welcomeDialog "• Room: $room"
-            welcomeDialog "• Position: $position"
-
+            logMessage "WELCOME DIALOG"  "• Computer Name: $computerName"
+            logMessage "WELCOME DIALOG"  "• User Name: $userName"
+            logMessage "WELCOME DIALOG"  "• Real Name: $realName"
+            logMessage "WELCOME DIALOG"  "• E-mail: $email"
+            logMessage "WELCOME DIALOG"  "• Asset Tag: $assetTag"
+            logMessage "WELCOME DIALOG"  "• Configuration: $symConfiguration"
+            logMessage "WELCOME DIALOG"  "• Department: $department"
+            logMessage "WELCOME DIALOG"  "• Building: $building"
+            logMessage "WELCOME DIALOG"  "• Room: $room"
+            logMessage "WELCOME DIALOG"  "• Position: $position"
 
             ###
             # Select `policyJSON` based on selected Configuration
@@ -3144,7 +3337,7 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
             if [[ -n "${computerName}" ]]; then
 
                 # UNTESTED, UNSUPPORTED "YOYO" EXAMPLE
-                welcomeDialog "Set Computer Name …"
+                logMessage "WELCOME DIALOG"  "Set Computer Name …"
                 currentComputerName=$( scutil --get ComputerName )
                 currentLocalHostName=$( scutil --get LocalHostName )
 
@@ -3156,8 +3349,8 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
 
                 if [[ "${debugMode}" == "true" ]] || [[ "${debugMode}" == "verbose" ]] ; then
 
-                    welcomeDialog "DEBUG MODE: Would have renamed computer from: \"${currentComputerName}\" to \"${computerName}\" "
-                    welcomeDialog "DEBUG MODE: Would have renamed LocalHostName from: \"${currentLocalHostName}\" to \"${newLocalHostName}\" "
+                    logMessage "WELCOME DIALOG"  "DEBUG MODE: Would have renamed computer from: \"${currentComputerName}\" to \"${computerName}\" "
+                    logMessage "WELCOME DIALOG"  "DEBUG MODE: Would have renamed LocalHostName from: \"${currentLocalHostName}\" to \"${newLocalHostName}\" "
 
                 else
 
@@ -3170,16 +3363,16 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
                     # Delay required to reflect change …
                     # … side-effect is a delay in the "Setup Your Mac" dialog appearing
                     sleep 5
-                    welcomeDialog "Renamed computer from: \"${currentComputerName}\" to \"$( scutil --get ComputerName )\" "
-                    welcomeDialog "Renamed LocalHostName from: \"${currentLocalHostName}\" to \"$( scutil --get LocalHostName )\" "
+                    logMessage "WELCOME DIALOG"  "Renamed computer from: \"${currentComputerName}\" to \"$( scutil --get ComputerName )\" "
+                    logMessage "WELCOME DIALOG"  "Renamed LocalHostName from: \"${currentLocalHostName}\" to \"$( scutil --get LocalHostName )\" "
 
                 fi
 
             else
 
-                welcomeDialog "${loggedInUser} did NOT specify a new computer name"
-                welcomeDialog "• Current Computer Name: \"$( scutil --get ComputerName )\" "
-                welcomeDialog "• Current Local Host Name: \"$( scutil --get LocalHostName )\" "
+                logMessage "WELCOME DIALOG"  "${loggedInUser} did NOT specify a new computer name"
+                logMessage "WELCOME DIALOG"  "• Current Computer Name: \"$( scutil --get ComputerName )\" "
+                logMessage "WELCOME DIALOG"  "• Current Local Host Name: \"$( scutil --get LocalHostName )\" "
 
             fi
 
@@ -3222,7 +3415,7 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
             if [[ -n "${position}" ]]; then reconOptions+="-position \"${position}\" "; fi
 
             # Output `recon` options to log
-            welcomeDialog "reconOptions: ${reconOptions}"
+            logMessage "WELCOME DIALOG"  "reconOptions: ${reconOptions}"
 
             ###
             # Display "Setup Your Mac" dialog (and capture Process ID)
@@ -3231,35 +3424,35 @@ elif [[ "${welcomeDialog}" == "userInput" ]]; then
             eval "${dialogSetupYourMacCMD[*]}" & sleep 0.3
             until pgrep -q -x "Dialog"; do
                 outputLineNumberInVerboseDebugMode
-                welcomeDialog "Waiting to display 'Setup Your Mac' dialog; pausing"
+                logMessage "WELCOME DIALOG" "Waiting to display 'Setup Your Mac' dialog; pausing"
                 sleep 0.5
             done
-            welcomeDialog "'Setup Your Mac' dialog displayed; ensure it's the front-most app"
-            runAsUser osascript -e 'tell application "Dialog" to activate'
+            logMessage "SETUP YOUR MAC DIALOG" "'Setup Your Mac' dialog displayed; ensure it's the front-most app"
+            dialogUpdateSetupYourMac "activate:"
             if [[ -n "${overlayoverride}" ]]; then
                 dialogUpdateSetupYourMac "overlayicon: ${overlayoverride}"
             fi
             ;;
 
         2)  # Process exit code 2 scenario here
-            welcomeDialog "${loggedInUser} clicked Quit at Welcome dialog"
+            logMessage "WELCOME DIALOG" "${loggedInUser} clicked Quit at Welcome dialog"
             completionActionOption="Quit"
             quitScript "1"
             ;;
 
         3)  # Process exit code 3 scenario here
-            welcomeDialog "${loggedInUser} clicked infobutton"
+            logMessage "WELCOME DIALOG" "${loggedInUser} clicked infobutton"
             osascript -e "set Volume 3"
             afplay /System/Library/Sounds/Glass.aiff
             ;;
 
         4)  # Process exit code 4 scenario here
-            welcomeDialog "${loggedInUser} allowed timer to expire"
+            logMessage "WELCOME DIALOG" "${loggedInUser} allowed timer to expire"
             quitScript "1"
             ;;
 
         *)  # Catch all processing
-            welcomeDialog "Something else happened; Exit code: ${welcomeResultsExitCode}"
+            logMessage "WELCOME DIALOG" "Something else happened; Exit code: ${welcomeResultsExitCode}"
             quitScript "1"
             ;;
 
@@ -3277,7 +3470,7 @@ else
     else
         symConfiguration="Catch-all ('Welcome' dialog disabled)"
     fi
-    welcomeDialog "Using ${symConfiguration} Configuration …"
+    logMessage "WELCOME DIALOG" "Using ${symConfiguration} Configuration …"
     policyJSONConfiguration
 
 
@@ -3289,11 +3482,11 @@ else
     eval "${dialogSetupYourMacCMD[*]}" & sleep 0.3
     until pgrep -q -x "Dialog"; do
         outputLineNumberInVerboseDebugMode
-        welcomeDialog "Waiting to display 'Setup Your Mac' dialog; pausing"
+        logMessage "WELCOME DIALOG" "Waiting to display 'Setup Your Mac' dialog; pausing"
         sleep 0.5
     done
-    welcomeDialog "'Setup Your Mac' dialog displayed; ensure it's the front-most app"
-    runAsUser osascript -e 'tell application "Dialog" to activate'
+    logMessage "SETUP YOUR MAC DIALOG" "'Setup Your Mac' dialog displayed; ensure it's the front-most app"
+    dialogUpdateSetupYourMac "activate:"
     if [[ -n "${overlayoverride}" ]]; then
         dialogUpdateSetupYourMac "overlayicon: ${overlayoverride}"
     fi
@@ -3328,8 +3521,8 @@ outputLineNumberInVerboseDebugMode
 
 totalProgressSteps=$(get_json_value "${policyJSON}" "steps.length")
 progressIncrementValue=$(( 100 / totalProgressSteps ))
-updateSetupYourMacDialog "Total Number of Steps: ${totalProgressSteps}"
-updateSetupYourMacDialog "Progress Increment Value: ${progressIncrementValue}"
+logMessage "SETUP YOUR MAC DIALOG" "Total Number of Steps: ${totalProgressSteps}"
+logMessage "SETUP YOUR MAC DIALOG" "Progress Increment Value: ${progressIncrementValue}"
 
 
 
@@ -3356,7 +3549,7 @@ dialogUpdateSetupYourMac "list: show"
 
 outputLineNumberInVerboseDebugMode
 
-updateSetupYourMacDialog "Initial progress bar"
+logMessage "SETUP YOUR MAC DIALOG" "Initial progress bar"
 dialogUpdateSetupYourMac "progress: 1"
 
 
@@ -3385,7 +3578,7 @@ if [[ "${symConfiguration}" == *"Catch-all"* ]] || [[ -z "${symConfiguration}" ]
 
         checkNetworkQualityCatchAllConfiguration &
 
-        updateSetupYourMacDialog "**Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimate:**  \n- $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
+        logMessage "SETUP YOUR MAC DIALOG" "**Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimate:**  \n- $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
 
         infoboxConfiguration="**Connection:**  \n- Download:  \n$mbps Mbps  \n\n**Estimate:**  \n- $(printf '%dh:%dm:%ds\n' $((configurationCatchAllEstimatedSeconds/3600)) $((configurationCatchAllEstimatedSeconds%3600/60)) $((configurationCatchAllEstimatedSeconds%60)))"
 
@@ -3415,9 +3608,9 @@ if [[ -n ${room} ]]; then infobox+="**Room:**  \n$room  \n\n" ; fi
 if [[ -n ${position} ]]; then infobox+="**Position:**  \n$position  \n\n" ; fi
 
 if { [[ "${promptForConfiguration}" != "true" ]] && [[ "${configurationDownloadEstimation}" == "true" ]]; } || { [[ "${welcomeDialog}" == "false" ]] || [[ "${welcomeDialog}" == "messageOnly" ]]; } then
-    updateSetupYourMacDialog "Purposely NOT updating 'infobox'"
+    logMessage "SETUP YOUR MAC DIALOG" "Purposely NOT updating 'infobox'"
 else
-    updateSetupYourMacDialog "Updating 'infobox'"
+    logMessage "SETUP YOUR MAC DIALOG" "Updating 'infobox'"
     dialogUpdateSetupYourMac "infobox: ${infobox}"
 fi
 
@@ -3435,7 +3628,7 @@ if [[ "${symConfiguration}" != *"Catch-all"* ]]; then
 
         if [[ -n "${supportTeamName}" ]]; then
 
-        updateScriptLog "Update 'helpmessage' with support-related information …"
+        logMessage "Update 'helpmessage' with support-related information …"
 
             helpmessage="If you need assistance, please contact:  \n\n**${supportTeamName}**  \n"
             
@@ -3465,7 +3658,7 @@ if [[ "${symConfiguration}" != *"Catch-all"* ]]; then
 
         fi
 
-        updateSetupYourMacDialog "Update 'helpmessage' with Configuration: ${infoboxConfiguration} …"
+        logMessage "SETUP YOUR MAC DIALOG" "Update 'helpmessage' with Configuration: ${infoboxConfiguration} …"
         helpmessage+="\n**Configuration:**\n- $infoboxConfiguration\n"
 
         helpmessage+="\n**Computer Information:**  \n"
@@ -3501,7 +3694,7 @@ for (( i=0; i<dialog_step_length; i++ )); do
 
     # If there's a value in the variable, update running swiftDialog
     if [[ -n "$listitem" ]]; then
-        updateSetupYourMacDialog "\n\n# # #\n# policyJSON > listitem: ${listitem}\n# # #\n"
+        logMessage "SETUP YOUR MAC DIALOG" "\n\n# # #\n# policyJSON > listitem: ${listitem}\n# # #\n"
         dialogUpdateSetupYourMac "activate:"
         dialogUpdateSetupYourMac "listitem: index: $i, status: wait, statustext: Installing …, "
     fi
@@ -3516,7 +3709,7 @@ for (( i=0; i<dialog_step_length; i++ )); do
             validation=$(get_json_value "${policyJSON}" "steps[$i].trigger_list[$j].validation")
             case ${validation} in
                 "Local" | "Remote" )
-                    updateSetupYourMacDialog "Skipping Policy Execution due to '${validation}' validation"
+                    logMessage "SETUP YOUR MAC DIALOG" "Skipping Policy Execution due to '${validation}' validation"
                     ;;
                 * )
                     confirmPolicyExecution "${trigger}" "${validation}"
@@ -3533,7 +3726,7 @@ for (( i=0; i<dialog_step_length; i++ )); do
     dialogUpdateSetupYourMac "progress: increment ${progressIncrementValue}"
 
     # Record duration
-    updateSetupYourMacDialog "Elapsed Time for '${trigger}' '${validation}': $(printf '%dh:%dm:%ds\n' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
+    logMessage "SETUP YOUR MAC DIALOG" "Elapsed Time for '${trigger}' '${validation}': $(printf '%dh:%dm:%ds\n' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
 
 done
 

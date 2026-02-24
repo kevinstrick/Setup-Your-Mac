@@ -1,13 +1,19 @@
 ---
 name: Bug Report
-about: Submit a bug report for Setup Your Mac (after having reviewed open swiftDialog issues)
+about: Submit a bug report for Setup Your Mac (after using the snippet below and having reviewed open swiftDialog issues)
 title: ''
 labels: bug
-assignees: dan-snelson
+assignees: ''
 
 ---
 
-> Before submitting a **Setup Your Mac** bug report, please review the [open swiftDialog issues](https://github.com/bartreardon/swiftDialog/issues) to help determine the source of the issue.
+> Before submitting a bug report, please use the following snippet to download a fresh, time-stamped version of `Setup-Your-Mac-via-Dialog.bash` and ensure you can replicate the unexpected behavior:
+> 
+> `timestamp=$( date '+%Y-%m-%d-%H%M%S' ) ; curl -o ~/Downloads/Setup-Your-Mac-via-Dialog-$timestamp.bash https://raw.githubusercontent.com/setup-your-mac/Setup-Your-Mac/main/Setup-Your-Mac-via-Dialog.bash ; sudo bash ~/Downloads/Setup-Your-Mac-via-Dialog-$timestamp.bash`
+> 
+> Also, please review the [open swiftDialog issues](https://github.com/bartreardon/swiftDialog/issues) to help determine the source of the issue.
+
+---
 
 **Describe the bug**
 A clear, concise description of the bug.
@@ -26,8 +32,9 @@ Please supply the full command used, and if applicable, add full output from Ter
 If applicable, add screenshots to help explain your problem.
 
 **Environment (please complete the following information):**
- - OS version (i.e., 13.1)
- - Script version (i.e., 1.6.0) - please upgrade to the latest version before submitting a bug report.
+ - OS version (i.e., 26.3)
+ - Script version (i.e., 1.16.0) - please upgrade to the latest version before submitting a bug report.
+ - swiftDialog version (i.e., 3.0.0) - please upgrade to the latest version before submitting a bug report.
 
 **Additional context**
 Add any other context about the problem here.

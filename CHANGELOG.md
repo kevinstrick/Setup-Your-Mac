@@ -1,8 +1,23 @@
 # CHANGELOG
 
-## 1.15.1, 06-Feb-2025
+## 1.16.0
+### 19-Feb-2026
+- Added proof-of-concept validations for swiftDialog `2.5.1`'s "blurscreen" control
+- Removed vendor-specific Local Validations (in favor of Remote Validations)
+- Updated Configuration `policyJSON` to better match internal usage
+- Added "activate" command to Validations
+- Updated the Microsoft Teams message template to the new format  (Pull Request #156; thanks, @nlopezUA!)
+- Simplify Client-side Logging (thanks, @DevliegereM!)
+- Added proof-of-concept validations for swiftDialog `2.5.6`'s "hide or show" dialog window
+- Updated Dynamic Download Estimates for macOS 26 (and beyond)
+- Updated for swiftDialog `3.0.0`
+- Updated `checkNetworkQualityCatchAllConfiguration` for macOS 26 (thanks for the heads-up, @Harald Brouwers!)
+- Added new salutation banner greeting, based on time o’ day (Pull Request #171; thanks, @ScottEKendall!)
+- Add configurable battery threshold to AC power pre-flight check (Pull Request #175; thanks, @owainri!)
+
+## 1.15.1
 ### 06-Feb-2025
-- Fixed minor issue with `calculateFreeDiskSpace` function result not being parsed into scriptLog
+- Fixed minor issue with `calculateFreeDiskSpace` function result not being parsed into scriptLog (thanks, @robjschroeder!)
 
 ## 1.15.0
 ### 11-Jun-2024
