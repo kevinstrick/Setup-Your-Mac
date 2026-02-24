@@ -40,12 +40,13 @@
 
 scriptVersion="1.16.0"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-scriptLog="${4:-"/var/log/org.churchofjesuschrist.log"}"                        # Parameter 4: Script Log Location [ /var/log/org.churchofjesuschrist.log ] (i.e., Your organization's default location for client-side logs)
+scriptLog="${4:-"/var/log/com.fox.SYM.log"}"                        # Parameter 4: Script Log Location [ /var/log/org.churchofjesuschrist.log ] (i.e., Your organization's default location for client-side logs)
 debugMode="${5:-"verbose"}"                                                     # Parameter 5: Debug Mode [ verbose (default) | true | false ]
 welcomeDialog="${6:-"userInput"}"                                               # Parameter 6: Welcome dialog [ userInput (default) | video | messageOnly | false ]
 completionActionOption="${7:-"Restart Attended"}"                               # Parameter 7: Completion Action [ wait | sleep (with seconds) | Shut Down | Shut Down Attended | Shut Down Confirm | Restart | Restart Attended (default) | Restart Confirm | Log Out | Log Out Attended | Log Out Confirm ]
 requiredMinimumBuild="${8:-"disabled"}"                                         # Parameter 8: Required Minimum Build [ disabled (default) | 23F ] (i.e., Your organization's required minimum build of macOS to allow users to proceed; use "23F" for macOS 14.5)
-outdatedOsAction="${9:-"/System/Library/CoreServices/Software Update.app"}"     # Parameter 9: Outdated OS Action [ /System/Library/CoreServices/Software Update.app (default) | jamfselfservice://content?entity=policy&id=117&action=view ] (i.e., Jamf Pro Self Service policy ID for operating system ugprades)
+#outdatedOsAction="${9:-"/System/Library/CoreServices/Software Update.app"}"     # Parameter 9: Outdated OS Action [ /System/Library/CoreServices/Software Update.app (default) | jamfselfservice://content?entity=policy&id=117&action=view ] (i.e., Jamf Pro Self Service policy ID for operating system ugprades)
+overlayicon="${9:-"/var/tmp/overlayicon.icns"}"     # Parameter 9: Overlay icon
 webhookURL="${10:-""}"                                                          # Parameter 10: Microsoft Teams or Slack Webhook URL [ Leave blank to disable (default) | https://microsoftTeams.webhook.com/URL | https://hooks.slack.com/services/URL ] Can be used to send a success or failure message to Microsoft Teams or Slack via Webhook. (Function will automatically detect if Webhook URL is for Slack or Teams; can be modified to include other communication tools that support functionality.)
 presetConfiguration="${11:-""}"                                                 # Parameter 11: Specify a Configuration (i.e., `policyJSON`; NOTE: If set, `promptForConfiguration` will be automatically suppressed and the preselected configuration will be used instead)
 swiftDialogMinimumRequiredVersion="2.5.6.4805"                                  # This will be set and updated as dependancies on newer features change.
@@ -60,7 +61,7 @@ humanReadableScriptName="Setup Your Mac"    # Script Human-readable Name
 organizationScriptName="sym"                # Organization's Script Name
 debugModeSleepAmount="3"                    # Delay for various actions when running in Debug Mode
 failureDialog="true"                        # Display the so-called "Failure" dialog (after the main SYM dialog) [ true | false ]
-requiredMinimumBatteryPercentage="25"       # Minimum battery percentage allowed to run without AC power. Set to "0" to always require AC power (original behaviour).
+requiredMinimumBatteryPercentage="15"       # Minimum battery percentage allowed to run without AC power. Set to "0" to always require AC power (original behaviour).
 
 
 
@@ -112,22 +113,22 @@ emailEnding="@company.com"
 positionList=$( echo "${positionListRaw}" | tr ',' '\n' | sort -f | uniq | sed -e 's/^/\"/' -e 's/$/\",/' -e '$ s/.$//' )
 
 # [SYM-Helper] Branding overrides
-brandingBanner="https://img.freepik.com/free-photo/liquid-purple-art-painting-abstract-colorful-background-with-color-splash-paints-modern-art_1258-102943.jpg" # [Image by benzoix on Freepik](https://www.freepik.com/author/benzoix)
-brandingBannerDisplayText="true"
-brandingIconLight="https://cdn-icons-png.flaticon.com/512/979/979585.png"
-brandingIconDark="https://cdn-icons-png.flaticon.com/512/740/740878.png"
+brandingBanner="/Library/Fox/Images/Fox_tech_banner.png" # [Image by benzoix on Freepik](https://www.freepik.com/author/benzoix)
+brandingBannerDisplayText="false"
+brandingIconLight="/Library/Fox/Images/FoxBlueWhiteTile.png"
+brandingIconDark="/Library/Fox/Images/FoxBlueWhiteTile.png"
 
 # [SYM-Helper] IT Support Variables - Use these if the default text is fine but you want your org's info inserted instead
 supportTeamName="Support Team Name"
 supportTeamPhone="+1 (801) 555-1212"
 supportTeamEmail="support@domain.com"
 supportTeamChat="chat.support.domain.com"
-supportTeamChatHyperlink="[${supportTeamChat}](https://${supportTeamChat})"
-supportTeamWebsite="support.domain.com"
-supportTeamHyperlink="[${supportTeamWebsite}](https://${supportTeamWebsite})"
-supportKB="KB8675309"
-supportTeamErrorKB="[${supportKB}](https://servicenow.company.com/support?id=kb_article_view&sysparm_article=${supportKB}#Failures)"
-supportTeamHours="Monday through Friday, 8 a.m. to 5 p.m."
+supportTeamChatHyperlink=""
+supportTeamWebsite=""
+supportTeamHyperlink=""
+supportKB=""
+supportTeamErrorKB=""
+supportTeamHours=""
 
 # Disable the "Continue" button in the User Input "Welcome" dialog until Dynamic Download Estimates have complete [ true | false ] (thanks, @Eltord!)
 lockContinueBeforeEstimations="false"
@@ -2228,22 +2229,22 @@ helpmessage+="- **Started:** ${timestamp}"
 infobox="Analyzing input …" # Customize at "Update Setup Your Mac's infobox"
 
 
-# Create `overlayicon` from Self Service's custom icon (thanks, @meschwartz!)
-# xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'\r'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
-# overlayicon="/var/tmp/overlayicon.icns"
-
-# Uncomment to use generic, Self Service icon as overlayicon
-overlayicon="https://ics.services.jamfcloud.com/icon/hash_aa63d5813d6ed4846b623ed82acdd1562779bf3716f2d432a8ee533bba8950ee"
-
-# Uncomment to use your company's custom Self Service icon as overlayicon
-# overlayicon="https://company.jamfcloud.com/api/v1/branding-images/download/1"
-
-# Set initial icon based on whether the Mac is a desktop or laptop
-if system_profiler SPPowerDataType | grep -q "Battery Power"; then
-    icon="SF=laptopcomputer.and.arrow.down,weight=semibold,colour1=#ef9d51,colour2=#ef7951"
-else
-    icon="SF=desktopcomputer.and.arrow.down,weight=semibold,colour1=#ef9d51,colour2=#ef7951"
-fi
+# # Create `overlayicon` from Self Service's custom icon (thanks, @meschwartz!)
+# # xxd -p -s 260 "$(defaults read /Library/Preferences/com.jamfsoftware.jamf self_service_app_path)"/Icon$'\r'/..namedfork/rsrc | xxd -r -p > /var/tmp/overlayicon.icns
+# # overlayicon="/var/tmp/overlayicon.icns"
+# 
+# # Uncomment to use generic, Self Service icon as overlayicon
+# overlayicon="https://ics.services.jamfcloud.com/icon/hash_aa63d5813d6ed4846b623ed82acdd1562779bf3716f2d432a8ee533bba8950ee"
+# 
+# # Uncomment to use your company's custom Self Service icon as overlayicon
+# # overlayicon="https://company.jamfcloud.com/api/v1/branding-images/download/1"
+# 
+# # Set initial icon based on whether the Mac is a desktop or laptop
+# if system_profiler SPPowerDataType | grep -q "Battery Power"; then
+#     icon="SF=laptopcomputer.and.arrow.down,weight=semibold,colour1=#ef9d51,colour2=#ef7951"
+# else
+#     icon="SF=desktopcomputer.and.arrow.down,weight=semibold,colour1=#ef9d51,colour2=#ef7951"
+# fi
 
 
 
