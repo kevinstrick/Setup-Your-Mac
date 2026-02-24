@@ -25,7 +25,11 @@
 #   - Add configurable battery threshold to AC power pre-flight check (Pull Request #175; thanks, @owainri!)
 #
 ####################################################################################################
-
+#
+# FORK
+#   - 2-24-2026 - ks - Disabled power check, other customizations
+#
+####################################################################################################
 
 
 ####################################################################################################
@@ -45,7 +49,7 @@ debugMode="${5:-"verbose"}"                                                     
 welcomeDialog="${6:-"userInput"}"                                               # Parameter 6: Welcome dialog [ userInput (default) | video | messageOnly | false ]
 completionActionOption="${7:-"Restart Attended"}"                               # Parameter 7: Completion Action [ wait | sleep (with seconds) | Shut Down | Shut Down Attended | Shut Down Confirm | Restart | Restart Attended (default) | Restart Confirm | Log Out | Log Out Attended | Log Out Confirm ]
 requiredMinimumBuild="${8:-"disabled"}"                                         # Parameter 8: Required Minimum Build [ disabled (default) | 23F ] (i.e., Your organization's required minimum build of macOS to allow users to proceed; use "23F" for macOS 14.5)
-#outdatedOsAction="${9:-"/System/Library/CoreServices/Software Update.app"}"     # Parameter 9: Outdated OS Action [ /System/Library/CoreServices/Software Update.app (default) | jamfselfservice://content?entity=policy&id=117&action=view ] (i.e., Jamf Pro Self Service policy ID for operating system ugprades)
+#outdatedOsAction="${9:-"/System/Library/CoreServices/Software Update.app"}"     # Parameter 9: Outdated OS Action [ /System/Library/CoreServices/Software Update.app (default) | jamfselfservice://content?entity=policy&id=117&action=view ] (i.e., Jamf Pro Self Service policy ID for operating system ugprades
 overlayicon="${9:-"/var/tmp/overlayicon.icns"}"     # Parameter 9: Overlay icon
 webhookURL="${10:-""}"                                                          # Parameter 10: Microsoft Teams or Slack Webhook URL [ Leave blank to disable (default) | https://microsoftTeams.webhook.com/URL | https://hooks.slack.com/services/URL ] Can be used to send a success or failure message to Microsoft Teams or Slack via Webhook. (Function will automatically detect if Webhook URL is for Slack or Teams; can be modified to include other communication tools that support functionality.)
 presetConfiguration="${11:-""}"                                                 # Parameter 11: Specify a Configuration (i.e., `policyJSON`; NOTE: If set, `promptForConfiguration` will be automatically suppressed and the preselected configuration will be used instead)
@@ -1595,7 +1599,7 @@ function acPowerCheck() {
 
     # Amount of time (in seconds) to allow a user to connect to AC power before exiting
     # If 0, then the user will not have the opportunity to connect to AC power
-    acPowerWaitTimer="300"
+    acPowerWaitTimer="600"
     humanReadablePowerWaitTimer="$((acPowerWaitTimer / 60)) minutes"
     endTime=$(date -v+${acPowerWaitTimer}S +"%H:%M")
 
@@ -1660,7 +1664,7 @@ function acPowerCheck() {
         logMessage "PRE-FLIGHT" "Battery level ${currentBatteryPercentage}% is below required minimum (${requiredMinimumBatteryPercentage}%) or could not be determined; enforcing AC power requirement."
 
         if [[ "$acPowerWaitTimer" -gt 0 ]]; then
-            osascript -e 'display dialog "Setup Your Mac needs the battery to be at least '"${requiredMinimumBatteryPercentage}"'% to run without AC power.\r\rPlease plug in your power adapter to continue.\r\rWaiting '"${humanReadablePowerWaitTimer}"' (until '"${endTime}"') for AC power before Setup Your Mac quits.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"OK"} with icon caution' &
+            osascript -e 'display dialog "Setup Your Mac needs the battery to be at least '"${requiredMinimumBatteryPercentage}"'% to run without AC power.\r\rPlease plug in your power adapter to continue.\r\rWaiting '"${humanReadablePowerWaitTimer}"' (until '"${endTime}"') for AC power before Setup Your Mac quits.\r\r" with title "Setup Your Mac: No AC power detected" buttons {"Plugged In"} with icon caution' &
             waitForPower
 
         else
@@ -1675,7 +1679,7 @@ function acPowerCheck() {
 
 }
 
-acPowerCheck # Comment-out to disable
+#acPowerCheck # Comment-out to disable
 
 
 
