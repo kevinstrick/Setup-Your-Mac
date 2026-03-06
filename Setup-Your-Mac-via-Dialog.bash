@@ -28,6 +28,7 @@
 #
 # FORK
 #   - 2-24-2026 - ks - Disabled power check, other customizations
+#   - 3-06-2026 - ks - modified "Restart Attended" function
 #
 ####################################################################################################
 
@@ -875,9 +876,9 @@ function completionAction() {
                 logMessage "COMPLETION ACTION" "Restart, requiring user-interaction"
                 killProcess "Self Service"
                 wait
-                # runAsUser osascript -e 'tell app "System Events" to restart'
+                runAsUser osascript -e 'tell app "System Events" to restart'
                 # sleep 5 && runAsUser osascript -e 'tell app "System Events" to restart' &
-                sleep 5 && shutdown -r now &
+                #sleep 5 && shutdown -r now &
                 ;;
 
             "Restart Confirm" )
