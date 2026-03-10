@@ -883,9 +883,11 @@ function completionAction() {
 
             "Restart Confirm" )
                 logMessage "COMPLETION ACTION" "Restart, only after macOS time-out or user confirmation"
+                killProcess "Self Service"
+                wait
                 runAsUser osascript -e 'tell app "loginwindow" to «event aevtrrst»'
                 ;;
-
+                
             "Log Out" )
                 logMessage "COMPLETION ACTION" "Log out sans user interaction"
                 killProcess "Self Service"
